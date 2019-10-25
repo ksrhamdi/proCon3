@@ -4,12 +4,7 @@ Makefile
 *.pyc
 .git
 .gitignore
-testRequest
-testResponse
 
 devInstance.txt
 *Dev.py
-configurationDev.py
-secretsDev.py
-
 
