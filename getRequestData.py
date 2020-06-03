@@ -36,15 +36,15 @@ class GetRequestData(webapp2.RequestHandler):
         httpRequestId = os.environ.get( conf.REQUEST_LOG_ID )
         responseData = { 'success':False, 'httpRequestId':httpRequestId }
         
+        cookieData = httpServer.validate( self.request, self.request.GET, responseData, self.response, idRequired=False )
+        userId = cookieData.id()
+
         # Retrieve requestId from linkKey.  destinationType must be RequestForProposals.
         linkKeyRecord = linkKey.LinkKey.get_by_id( linkKeyStr )
         logging.debug( 'GetRequestData.get() linkKeyRecord=' + str(linkKeyRecord) )
 
         if (linkKeyRecord == None) or (linkKeyRecord.destinationType != conf.REQUEST_CLASS_NAME):
-            httpServer.outputJsonError( conf.BAD_LINK, responseData, self.response )
-            return
-
-        userId = user.getCookieId( self.request, loginRequired=linkKeyRecord.loginRequired )
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.BAD_LINK )
 
         # Retrieve RequestForProposal by id, filter/transform fields for display.
         requestId = linkKeyRecord.destinationId
@@ -117,7 +117,7 @@ class GetRequestData(webapp2.RequestHandler):
             r['myVote'] = voteRec.voteUp if voteRec  else False
 
         # Store request to user's recent requests (cookie).
-        user.storeRecentLinkKey( linkKeyStr, self.request, self.response )
+        user.storeRecentLinkKey( linkKeyStr, cookieData )
 
         # Display request data.
         responseData = {
@@ -129,7 +129,7 @@ class GetRequestData(webapp2.RequestHandler):
             'maxProposals': maxProposals,
         }
         logging.debug( 'GetRequestData.get() responseData=' + json.dumps(responseData, indent=4, separators=(', ' , ':')) )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 

@@ -261,8 +261,8 @@
         this.answerValidity = '';
         this.dataUpdated();
         var thisCopy = this;
-        var sendData = { 
-            crumb:crumb , crumbForLogin:crumbForLogin , 
+        var sendData = {
+            crumb:crumb , fingerprint:fingerprint ,
             questionId:this.question.id , content:answerInputValue , linkKey:this.topDisp.linkKey.id 
         };
         var url = '/autocomplete/setAnswer';

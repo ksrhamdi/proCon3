@@ -22,6 +22,10 @@ class GetRecent( webapp2.RequestHandler ):
         httpRequestId = os.environ.get( conf.REQUEST_LOG_ID )
         responseData = { 'success':False, 'httpRequestId':httpRequestId }
 
+        # No crumb because this is a get-call and we don't want to send crumb in the clear
+        cookieData = httpServer.validate( self.request, self.request.GET, responseData, self.response, crumbRequired=False, signatureRequired=False )
+        if not cookieData.valid():  return
+
         recentDestSummaries = []
 
         # Read recent link-keys from cookie
@@ -64,8 +68,7 @@ class GetRecent( webapp2.RequestHandler ):
         logging.debug( 'getRecent.GetRecent() recentDestSummaries=' + str(recentDestSummaries) )
         
         responseData = { 'success':True, 'recents':recentDestSummaries }
-        self.response.out.write( json.dumps( responseData ) )
-      
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 # Route HTTP request

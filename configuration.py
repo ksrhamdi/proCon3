@@ -7,9 +7,10 @@ from constants import Constants
 
 const = Constants()
 
-const.isDev = os.path.isfile('devInstance.txt')
+const.isDev = os.path.isfile('configurationDev.py')
 if const.isDev:  import configurationDev
 
+const.COOKIE_FIELD_SIGNATURE = 'signature'
 const.COOKIE_FIELD_BROWSER_ID = 'identity'
 const.COOKIE_FIELD_VOTER_ID = 'voterId'
 const.COOKIE_FIELD_VOTER_CITY = 'voterCity'

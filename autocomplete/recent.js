@@ -51,7 +51,7 @@
 
         // request via ajax
         var thisCopy = this;
-        var sendData = { };
+        var sendData = { };  // Dont send crumb via GET call, because it would be observable in URL
         var url = '/autocomplete/getRecent';
         ajaxGet( sendData, url, function(error, status, receiveData){
             if ( receiveData ){

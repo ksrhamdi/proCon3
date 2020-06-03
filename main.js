@@ -28,22 +28,24 @@ var loginRequestKey = null;
 
 
 ////////////////////////////////////////////////////////////////////////////////
-// Handle fragment changes
-
+// Handle page / fragment changes
 
 $(document).ready( function(){
 
     console.log('Document ready');
-    updateMenuForScreenChange();
-    updateWaitingLogin();
-    window.onhashchange();
 
-    // When user re-visits the page... retrieve data from server (periodic update is too demanding)
-    jQuery(window).bind( 'focus', function(event){
-        // Retrieve login cookie
-        // Do not overlap updating display & login, because display-data-cookies may overwrite login-cookie, without voter-id
-        updateWaitingLogin(  function(){ updateDisplayData() }  );
-    } );
+    requestInitialCookie( function(){
+        updateMenuForScreenChange();
+        updateWaitingLogin();
+        window.onhashchange();
+
+        // When user re-visits the page... retrieve data from server (periodic update is too demanding)
+        jQuery(window).bind( 'focus', function(event){
+            // Retrieve login cookie
+            // Do not overlap updating display & login, because display-data-cookies may overwrite login-cookie, without voter-id
+            updateWaitingLogin(  function(){ updateDisplayData() }  );
+        });
+    });
 });
 
     function

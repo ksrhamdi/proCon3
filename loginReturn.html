@@ -19,8 +19,17 @@
 </div id=content>
 <div id=log></div>
 
+
+<script src='jquery-3.4.1.min.js'></script>
+<script src='shared.js'></script>
 <script>
-    window.close();
+    var crumb = '{{crumb}}';
+
+    $(document).ready( function(){
+        requestInitialCookie( function(){  // Collect browser-fingerprint to set signed cookie
+            window.close();
+        } );
+    } );
 </script>
 
 

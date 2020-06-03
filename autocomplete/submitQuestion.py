@@ -37,31 +37,32 @@ class SubmitEditQuestion(webapp2.RequestHandler):
             + ' loginCrumb=' + str(loginCrumb) 
             + ' linkKeyString=' + str(linkKeyString) + ' questionId=' + str(questionId) )
 
+        responseData = { 'success':False, 'requestLogId':requestLogId }
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response )
+        if not cookieData.valid():  return
+        userId = cookieData.id()
+
         # Retrieve link-key record
-        if linkKeyString is None:  httpServer.outputJsonError( 'linkKeyString is null', responseData, self.response );  return;
+        if linkKeyString is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKeyString is null' )
         linkKeyRecord = linkKey.LinkKey.get_by_id( linkKeyString )
         logging.debug( 'SubmitEditQuestion.post() linkKeyRecord=' + str(linkKeyRecord) )
 
-        if linkKeyRecord is None:  httpServer.outputJsonError( 'linkKey not found', responseData, self.response );  return;
-        if linkKeyRecord.destinationType != conf.SURVEY_CLASS_NAME:  httpServer.outputJsonError( 'linkKey destinationType=' + str(linkKeyRecord.destinationType), responseData, self.response );  return;
+        if linkKeyRecord is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKey not found' )
+        if linkKeyRecord.destinationType != conf.SURVEY_CLASS_NAME:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKey destinationType=' + str(linkKeyRecord.destinationType) )
         surveyId = linkKeyRecord.destinationId
         loginRequired = linkKeyRecord.loginRequired
 
-        # User id from cookie, crumb...
-        responseData = { 'success':False, 'requestLogId':requestLogId }
-        userId = httpServer.getAndCheckUserId( self.request, browserCrumb, responseData, self.response, loginRequired=loginRequired, loginCrumb=loginCrumb )
-        if userId is None:  return
+        if linkKeyRecord.loginRequired  and  not cookieData.loginId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NO_LOGIN )
 
         # Check question length
         if not httpServer.isLengthOk( content, '', conf.minLengthQuestion ):
-            httpServer.outputJsonError( conf.TOO_SHORT, responseData, self.response )
-            return
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.TOO_SHORT )
 
         # Retrieve survey record
         surveyRec = survey.Survey.get_by_id( int(surveyId) )
-        if surveyRec is None:  httpServer.outputJsonError( 'survey not found', responseData, self.response );  return;
+        if surveyRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='survey not found' )
         logging.debug( 'SubmitEditQuestion.post() surveyRec=' + str(surveyRec) )
-        if userId != surveyRec.creator:  httpServer.outputJsonError( conf.NOT_OWNER, responseData, self.response );  return;
+        if userId != surveyRec.creator:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NOT_OWNER )
 
         # Retrieve question record
         # If question record exists...
@@ -69,12 +70,12 @@ class SubmitEditQuestion(webapp2.RequestHandler):
             questionRec = question.Question.get_by_id( int(questionId) )
             logging.debug( 'SubmitEditQuestion.post() questionRec=' + str(questionRec) )
 
-            if questionRec is None:  httpServer.outputJsonError( 'question not found', responseData, self.response );  return;
-            if questionRec.surveyId != linkKeyRecord.destinationId:  httpServer.outputJsonError( 'questionRec.surveyId != linkKeyRecord.destinationId', responseData, self.response );  return;
+            if questionRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='question not found' )
+            if questionRec.surveyId != linkKeyRecord.destinationId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='questionRec.surveyId != linkKeyRecord.destinationId' )
 
             # Verify that question is editable
-            if userId != questionRec.creator:  httpServer.outputJsonError( conf.NOT_OWNER, responseData, self.response );  return;
-            if not questionRec.allowEdit:  httpServer.outputJsonError( conf.HAS_RESPONSES, responseData, self.response );  return;
+            if userId != questionRec.creator:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NOT_OWNER )
+            if not questionRec.allowEdit:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.HAS_RESPONSES )
 
             # Update question record.
             questionRec.content = content
@@ -97,7 +98,8 @@ class SubmitEditQuestion(webapp2.RequestHandler):
         # Display updated question.
         questionDisplay = httpServerAutocomplete.questionToDisplay( questionRec, userId )
         responseData.update(  { 'success':True, 'question':questionDisplay }  )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
+
 
 
 class DeleteQuestion(webapp2.RequestHandler):
@@ -118,34 +120,36 @@ class DeleteQuestion(webapp2.RequestHandler):
             + ' loginCrumb=' + str(loginCrumb) 
             + ' linkKeyString=' + str(linkKeyString) + ' questionId=' + str(questionId) )
 
-        if questionId is None:  httpServer.outputJsonError( 'questionId is null', responseData, self.response );  return;
+        responseData = { 'success':False, 'requestLogId':requestLogId }
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response )
+        if not cookieData.valid():  return
+        userId = cookieData.id()
+
+        if questionId is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='questionId is null' )
 
         # Retrieve link-key record
-        if linkKeyString is None:  httpServer.outputJsonError( 'linkKeyString is null', responseData, self.response );  return;
+        if linkKeyString is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKeyString is null' )
         linkKeyRecord = linkKey.LinkKey.get_by_id( linkKeyString )
         logging.debug( 'DeleteQuestion.post() linkKeyRecord=' + str(linkKeyRecord) )
 
-        if linkKeyRecord is None:  httpServer.outputJsonError( 'linkKey not found', responseData, self.response );  return;
-        if linkKeyRecord.destinationType != conf.SURVEY_CLASS_NAME:  httpServer.outputJsonError( 'linkKey destinationType=' + str(linkKeyRecord.destinationType), responseData, self.response );  return;
+        if linkKeyRecord is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKey not found' )
+        if linkKeyRecord.destinationType != conf.SURVEY_CLASS_NAME:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKey destinationType=' + str(linkKeyRecord.destinationType) )
         surveyId = linkKeyRecord.destinationId
         loginRequired = linkKeyRecord.loginRequired
 
-        # User id from cookie, crumb...
-        responseData = { 'success':False, 'requestLogId':requestLogId }
-        userId = httpServer.getAndCheckUserId( self.request, browserCrumb, responseData, self.response, loginRequired=loginRequired, loginCrumb=loginCrumb )
-        if userId is None: return
+        if linkKeyRecord.loginRequired  and  not cookieData.loginId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NO_LOGIN )
 
         # Retrieve question and check owner
         questionRec = question.Question.get_by_id( int(questionId) )
-        if questionRec is None:  httpServer.outputJsonError( 'question record not found', responseData, self.response );  return;
-        if userId != questionRec.creator:  httpServer.outputJsonError( conf.NOT_OWNER, responseData, self.response );  return;
+        if questionRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='question record not found' )
+        if userId != questionRec.creator:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NOT_OWNER )
 
         # Delete question from survey.
         surveyRec = survey.Survey.get_by_id( int(surveyId) )
         logging.debug( 'DeleteQuestion.post() surveyRec=' + str(surveyRec) )
         
-        if surveyRec is None:  httpServer.outputJsonError( 'survey record not found', responseData, self.response );  return;
-        if userId != surveyRec.creator:  httpServer.outputJsonError( conf.NOT_OWNER, responseData, self.response );  return;
+        if surveyRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='survey record not found' )
+        if userId != surveyRec.creator:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NOT_OWNER )
 
         questionIds = [ q for q in surveyRec.questionIds  if q != questionId ]
         logging.debug( 'DeleteQuestion.post() questionIds=' + str(questionIds) )
@@ -169,8 +173,7 @@ class DeleteQuestion(webapp2.RequestHandler):
         
         # Display result.
         responseData.update(  { 'success':True }  )
-        self.response.out.write( json.dumps( responseData ) )
-
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 

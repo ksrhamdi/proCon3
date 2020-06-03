@@ -29,7 +29,7 @@ body {  padding:0px;  margin:0px;  font-family:sans-serif;  background-color:#f8
     }
     .Button:hover , button:hover {  background:rgb(206,231,256);  color:black;  }
 
-    #content {  max-width:800px;  margin:20px auto 20px auto;  }
+    #content {  max-width:800px;  margin:20px auto 20px auto;  word-wrap:anywhere;  }
         #siteName {  text-align:center;  font-weight:normal;  color:#aaaaaa;  }
         .title {  margin:15px 0px 20px 0px;  text-align:center;  font-weight:bold;  font-size:20px;  color:#888888;  }
 

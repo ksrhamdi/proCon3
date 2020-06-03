@@ -22,13 +22,24 @@ import user
 
 
 # Returns surveyId, loginRequired from linkKey record, or None
-def retrieveSurveyIdFromLinkKey( linkKeyString, responseData, httpResponse ):
+# No longer need to return loginRequired, enforced here, not used by callers
+def retrieveSurveyIdFromLinkKey( cookieData, linkKeyString, responseData, httpResponse ):
     # Retrieve link-key
     linkKeyRec = linkKey.LinkKey.get_by_id( linkKeyString )
     logging.debug( 'retrieveSurveyIdFromLinkKey() linkKeyRec=' + str(linkKeyRec) )
 
-    if linkKeyRec is None:  httpServer.outputJsonError( 'linkKey not found', responseData, httpResponse );  return None, None;
-    if linkKeyRec.destinationType != conf.SURVEY_CLASS_NAME:  httpServer.outputJsonError( 'linkKey destinationType=' + str(linkKeyRec.destinationType), responseData, httpResponse );  return None, None;
+    if linkKeyRec is None:
+        httpServer.outputJson( cookieData, responseData, httpResponse, errorMessage='linkKey not found' )
+        return None, None
+
+    if linkKeyRec.destinationType != conf.SURVEY_CLASS_NAME:
+        httpServer.outputJson( cookieData, responseData, httpResponse, errorMessage='linkKey destinationType=' + str(linkKeyRec.destinationType) )
+        return None, None
+
+    if linkKeyRec.loginRequired  and  not cookieData.loginId:
+        httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NO_LOGIN )
+        return None, None
+
     return linkKeyRec.destinationId, linkKeyRec.loginRequired
 
 
@@ -42,29 +53,27 @@ class EditAnswer(webapp2.RequestHandler):
         inputData = json.loads( self.request.body )
         logging.debug( 'EditAnswer.post() inputData=' + str(inputData) )
 
+        responseData = { 'success':False, 'requestLogId':requestLogId }
+
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response )
+        if not cookieData.valid():  return
+        userId = cookieData.id()
+
         content = answer.standardizeContent( text.formTextToStored( inputData['content'] ) )
         linkKeyString = inputData['linkKey']
         answerId = inputData['answerId']
         questionId = str( int( inputData['questionId'] ) )
         browserCrumb = inputData.get( 'crumb', None )
-        loginCrumb = inputData.get( 'crumbForLogin', None )
         logging.debug( 'EditAnswer.post() content=' + str(content) + ' browserCrumb=' + str(browserCrumb) 
-            + ' loginCrumb=' + str(loginCrumb) 
             + ' linkKeyString=' + str(linkKeyString) + ' answerId=' + str(answerId) )
 
-        responseData = { 'success':False, 'requestLogId':requestLogId }
-
-        surveyId, loginRequired = retrieveSurveyIdFromLinkKey( linkKeyString, responseData, self.response )
+        surveyId, loginRequired = retrieveSurveyIdFromLinkKey( cookieData, linkKeyString, responseData, self.response )
         if surveyId is None:  return
 
-        # User id from cookie, crumb...
-        userId = httpServer.getAndCheckUserId( self.request, browserCrumb, responseData, self.response, loginRequired=loginRequired, loginCrumb=loginCrumb )
-        if userId is None: return
-        
         # Retrieve survey record to check survey creator
         surveyRec = survey.Survey.get_by_id( int(surveyId) )
-        if surveyRec is None:  httpServer.outputJsonError( 'survey record not found', responseData, self.response );  return None;
-        if surveyRec.creator != userId:  httpServer.outputJsonError( 'surveyRec.creator != userId', responseData, self.response );  return None;
+        if surveyRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='survey record not found' )
+        if surveyRec.creator != userId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='surveyRec.creator != userId' )
       
         # Split answers by newline
         contentLines = content.split( '\n' )  if content  else []
@@ -76,8 +85,7 @@ class EditAnswer(webapp2.RequestHandler):
 
             # Check answer length
             if not httpServer.isLengthOk( contentLine, '', conf.minLengthAnswer ):
-                httpServer.outputJsonError( conf.TOO_SHORT, responseData, self.response )
-                return
+                return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.TOO_SHORT )
 
             # If new answer value already exists... error.  If new answer is same as old answer value... no problem?
             newAnswerId = answer.toKeyId( questionId, contentLine )
@@ -87,18 +95,17 @@ class EditAnswer(webapp2.RequestHandler):
             # Delete old answer
             if answerId:
                 oldAnswerRec = answer.Answer.get_by_id( answerId )
-                if oldAnswerRec is None:  httpServer.outputJsonError( 'answer record not found', responseData, self.response );  return;
-                if oldAnswerRec.surveyId != surveyId:  httpServer.outputJsonError( 'oldAnswerRec.surveyId != surveyId', responseData, self.response );  return;
+                if oldAnswerRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='answer record not found' )
+                if oldAnswerRec.surveyId != surveyId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='oldAnswerRec.surveyId != surveyId' )
                 oldAnswerRec.key.delete()
             # Create new answer
-            answerRec = answer.newAnswer( questionId, surveyId, contentLine, userId, voteCount=0 )
+            answerRec = answer.newAnswer( questionId, surveyId, contentLine, userId, voteCount=0, fromEditPage=True )
             answerDisplay = httpServerAutocomplete.answerToDisplay( answerRec, userId )
             answerDisplays.append( answerDisplay )
         
         # Display updated answers
         responseData.update(  { 'success':True, 'answers':answerDisplays }  )
-        self.response.out.write( json.dumps( responseData ) )
-
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 class DeleteAnswer(webapp2.RequestHandler):
@@ -114,35 +121,32 @@ class DeleteAnswer(webapp2.RequestHandler):
         linkKeyString = inputData['linkKey']
         answerId = inputData['answerId']
         browserCrumb = inputData.get( 'crumb', None )
-        loginCrumb = inputData.get( 'crumbForLogin', None )
         logging.debug( 'DeleteAnswer.post() browserCrumb=' + str(browserCrumb) 
-            + ' loginCrumb=' + str(loginCrumb) 
             + ' linkKeyString=' + str(linkKeyString) + ' answerId=' + str(answerId) )
 
         responseData = { 'success':False, 'requestLogId':requestLogId }
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response )
+        if not cookieData.valid():  return
+        userId = cookieData.id()
 
-        surveyId, loginRequired = retrieveSurveyIdFromLinkKey( linkKeyString, responseData, self.response )
+        surveyId, loginRequired = retrieveSurveyIdFromLinkKey( cookieData, linkKeyString, responseData, self.response )
         if surveyId is None:  return
-
-        # User id from cookie, crumb...
-        userId = httpServer.getAndCheckUserId( self.request, browserCrumb, responseData, self.response, loginRequired=loginRequired, loginCrumb=loginCrumb )
-        if userId is None: return
 
         # Retrieve survey record to check survey creator
         surveyRec = survey.Survey.get_by_id( int(surveyId) )
-        if surveyRec is None:  httpServer.outputJsonError( 'survey record not found', responseData, self.response );  return None;
-        if surveyRec.creator != userId:  httpServer.outputJsonError( 'surveyRec.creator != userId', responseData, self.response );  return None;
+        if surveyRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='survey record not found' )
+        if surveyRec.creator != userId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='surveyRec.creator != userId' )
 
         # Delete old answer.
         if answerId:
             oldAnswerRec = answer.Answer.get_by_id( answerId )
-            if oldAnswerRec is None:  httpServer.outputJsonError( 'answer record not found', responseData, self.response );  return;
-            if oldAnswerRec.surveyId != surveyId:  httpServer.outputJsonError( 'oldAnswerRec.surveyId != surveyId', responseData, self.response );  return;
+            if oldAnswerRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='answer record not found' )
+            if oldAnswerRec.surveyId != surveyId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='oldAnswerRec.surveyId != surveyId' )
             oldAnswerRec.key.delete()
         
         # Display result.
         responseData.update(  { 'success':True }  )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 
@@ -160,39 +164,34 @@ class SetAnswer(webapp2.RequestHandler):
         linkKeyString = inputData['linkKey']
         questionId = str( int( inputData['questionId'] ) )
         browserCrumb = inputData.get( 'crumb', None )
-        loginCrumb = inputData.get( 'crumbForLogin', None )
         logging.debug( 'SetAnswer.post() content=' + str(content) + ' browserCrumb=' + str(browserCrumb) 
-            + ' loginCrumb=' + str(loginCrumb) 
             + ' linkKeyString=' + str(linkKeyString) )
 
         responseData = { 'success':False, 'requestLogId':requestLogId }
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response )
+        if not cookieData.valid():  return
+        userId = cookieData.id()
 
-        surveyId, loginRequired = retrieveSurveyIdFromLinkKey( linkKeyString, responseData, self.response )
+        surveyId, loginRequired = retrieveSurveyIdFromLinkKey( cookieData, linkKeyString, responseData, self.response )
         if surveyId is None:  return
-
-        # User id from cookie, crumb...
-        userId = httpServer.getAndCheckUserId( self.request, browserCrumb, responseData, self.response, loginRequired=loginRequired, loginCrumb=loginCrumb )
-        if userId is None: return
 
         # Check answer length
         if ( content is not None ) and not httpServer.isLengthOk( content, '', conf.minLengthAnswer ):
-            httpServer.outputJsonError( conf.TOO_SHORT, responseData, self.response )
-            return
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.TOO_SHORT )
 
         # Retrieve question record.
         questionRec = question.Question.get_by_id( int(questionId) )
         logging.debug( 'SetAnswer.post() questionRec=' + str(questionRec) )
 
-        if questionRec is None:  httpServer.outputJsonError( 'question not found', responseData, self.response );  return;
-        if questionRec.surveyId != surveyId:  httpServer.outputJsonError( 'questionRec.surveyId != surveyId', responseData, self.response );  return;
+        if questionRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='question not found' )
+        if questionRec.surveyId != surveyId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='questionRec.surveyId != surveyId' )
         
         # Update answer and vote.
         answerRec, voteRecord = answer.vote( questionId, surveyId, content, userId, questionRec.creator )
 
         # Display updated answer.
         responseData.update(  { 'success':True, 'answerContent':content }  )
-        self.response.out.write( json.dumps( responseData ) )
-
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 # Route HTTP request

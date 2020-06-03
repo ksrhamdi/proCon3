@@ -72,7 +72,7 @@
         newProposalInputTitle.setCustomValidity('');
         newProposalInputDetail.setCustomValidity('');
         var dataSend = { 
-            crumb:crumb , crumbForLogin:crumbForLogin , 
+            crumb:crumb , fingerprint:fingerprint ,
             loginRequired:loginRequiredForProposalCheckbox.checked ,
             title:newProposalInputTitle.value , detail:newProposalInputDetail.value 
         };

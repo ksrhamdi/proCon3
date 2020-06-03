@@ -27,11 +27,10 @@
 # Import external modules
 from collections import Counter
 from google.appengine.ext import ndb
-from google.appengine.api import search   # Not used yet
+from google.appengine.api import search
 import hashlib
 import logging
 import re
-import traceback    # Not used
 # Import app modules
 import answerVote
 from configAutocomplete import const as conf
@@ -70,12 +69,13 @@ class Answer(ndb.Model):
     surveyId = ndb.StringProperty()   # To verify answer belongs to survey
     content = ndb.StringProperty()
     creator = ndb.StringProperty()
+    fromEditPage = ndb.BooleanProperty()  # To keep answers from survey-creator only from edit-page
 
     voteCount = ndb.IntegerProperty( default=0 )
     score = ndb.FloatProperty( default=0 )
 
 
-def voteCountToScore( voteCount, content ):
+def __voteCountToScore( voteCount, content ):
     contentLen = len(content)
     # score = votes per CHAR_LENGTH_UNITs used
     unitsUsed = float(contentLen) / float(const.CHAR_LENGTH_UNIT)  if contentLen >= const.CHAR_LENGTH_UNIT  else 1.0
@@ -103,7 +103,7 @@ def retrieveTopAnswersAsync( surveyId, questionId, answerStart=None ):
         # Try to use search index, which may fail if query words do not match any answers
         if const.USE_SEARCH_INDEX:
             # Retrieve a limited number of answers that match answerStart words
-            answerRecords = getAnswersFromSearchIndex( surveyId, questionId, answerStart )
+            answerRecords = __getAnswersFromSearchIndex( surveyId, questionId, answerStart )
         # Fall-back to retrieving all answers
         if len(answerRecords) == 0:
             # Retrieve all answers
@@ -136,9 +136,9 @@ def retrieveTopAnswersAsync( surveyId, questionId, answerStart=None ):
 
 
         # Compute inverse-document-frequency weights for query words, across retrieved answer records
-        answerMatches = [ AnswerMatch( answerRecord=a, content=a.content, wordSeq=tokenize(a.content) ) for a in answerRecords ]
+        answerMatches = [ AnswerMatch( answerRecord=a, content=a.content, wordSeq=__tokenize(a.content) ) for a in answerRecords ]
         
-        queryWords = set( tokenize(answerStart) )
+        queryWords = set( __tokenize(answerStart) )
         logging.debug( 'retrieveTopAnswersAsync() queryWords=' + str(queryWords) )
 
         wordToInvDocFreq = stats.computeInvDocFreq( answerMatches, queryWords )
@@ -175,30 +175,30 @@ def retrieveTopAnswersAsync( surveyId, questionId, answerStart=None ):
         return suggestionsOrdered
 
 
-def getAnswersFromSearchIndex( surveyId, questionId, answerStart ):
+def __getAnswersFromSearchIndex( surveyId, questionId, answerStart ):
 
     queryWords = set(  re.split( r'[^a-z0-9\-]+' , answerStart.lower() )  )
-    logging.debug( 'getAnswersFromSearchIndex() queryWords=' + str(queryWords) )
+    logging.debug( '__getAnswersFromSearchIndex() queryWords=' + str(queryWords) )
 
     # Filter out stop-words
     queryWords = [ w  for w in queryWords  if w and (w not in conf.STOP_WORDS) ]
-    logging.debug( 'getAnswersFromSearchIndex() queryWords=' + str(queryWords) )
+    logging.debug( '__getAnswersFromSearchIndex() queryWords=' + str(queryWords) )
     if len(queryWords) == 0:  return []
     
     # Limit number of query words, randomly sample
     queryWordsSample = stats.randomSample( queryWords, const.MAX_SEARCH_QUERY_WORDS )
-    logging.debug( 'getAnswersFromSearchIndex() queryWordsSample=' + str(queryWordsSample) )
+    logging.debug( '__getAnswersFromSearchIndex() queryWordsSample=' + str(queryWordsSample) )
 
     # Search for any query word
     queryStringWords = ' OR '.join(  [ 'content:~"{}"'.format(w)  for w in queryWordsSample  if w ]  )
-    logging.debug( 'getAnswersFromSearchIndex() queryStringWords=' + str(queryStringWords) )
+    logging.debug( '__getAnswersFromSearchIndex() queryStringWords=' + str(queryStringWords) )
     
     # Constrain query to survey and question
     queryString = 'survey:"{}" AND question:"{}" AND ( {} )'.format( surveyId, questionId, queryStringWords )
-    logging.debug( 'getAnswersFromSearchIndex() queryString=' + str(queryString) )
+    logging.debug( '__getAnswersFromSearchIndex() queryString=' + str(queryString) )
 
     searchIndex = search.Index( name=const.SEARCH_INDEX_NAME )
-    logging.debug( 'getAnswersFromSearchIndex() searchIndex=' + str(searchIndex) )
+    logging.debug( '__getAnswersFromSearchIndex() searchIndex=' + str(searchIndex) )
 
     try:
         query = search.Query(
@@ -209,17 +209,17 @@ def getAnswersFromSearchIndex( surveyId, questionId, answerStart ):
 
         # Collect search results including answer record keys
         for doc in searchResults:
-            logging.debug( 'getAnswersFromSearchIndex() doc=' + str(doc) )
+            logging.debug( '__getAnswersFromSearchIndex() doc=' + str(doc) )
 
         answerRecKeys = [ ndb.Key(Answer, doc.doc_id)  for doc in searchResults  if doc and doc.doc_id ]
-        logging.debug( 'getAnswersFromSearchIndex() answerRecKeys=' + str(answerRecKeys) )
+        logging.debug( '__getAnswersFromSearchIndex() answerRecKeys=' + str(answerRecKeys) )
         
         # Fetch answer records
         answerRecords = ndb.get_multi( answerRecKeys )
-        logging.debug( 'getAnswersFromSearchIndex() answerRecords=' + str(answerRecords) )
+        logging.debug( '__getAnswersFromSearchIndex() answerRecords=' + str(answerRecords) )
 
         answerRecords = [ a  for a in answerRecords  if a ]  # Filter null records
-        logging.debug( 'getAnswersFromSearchIndex() answerRecords=' + str(answerRecords) )
+        logging.debug( '__getAnswersFromSearchIndex() answerRecords=' + str(answerRecords) )
         
         return answerRecords
 
@@ -228,13 +228,13 @@ def getAnswersFromSearchIndex( surveyId, questionId, answerStart ):
         return []
 
 
-def tokenize( text ):
+def __tokenize( text ):
     return re.split( r'[^a-z0-9\-]+' , text.lower() )
 
 
 
 # Key answers by questionId+hash(content), to prevent duplicates.
-# Prevents problem of voting for answer that was deleted (down-voted) after display.
+# Prevents problem of voting for answer that was deleted (down-voted) between display & vote
 def toKeyId( questionId, answerContent ):
     hasher = hashlib.md5()
     hasher.update( answerContent )
@@ -277,8 +277,9 @@ def vote( questionId, surveyId, answerContent, userId, questionCreator ):
         if isNewAnswer and isVotedAnswer:  continue     # voteCount already set to 1 during record creation
         # Store answer vote-count increment.
         logging.debug( 'vote() incAnswerId=' + str(incAnswerId) )
-        answerRecToInc = answerRecord if isVotedAnswer  else Answer.get_by_id( incAnswerId )
-        incAnswerRecord = _incrementVoteCount( voteCountIncrement, questionCreator, answerRecToInc )  # Contested lightly
+        answerRecordForIncrement = answerRecord if isVotedAnswer  else Answer.get_by_id( incAnswerId )
+        # Contested lightly
+        incAnswerRecord = __incrementVoteCount( voteCountIncrement, questionCreator, answerRecordForIncrement )
 
     return answerRecord, voteRecord
 
@@ -286,8 +287,8 @@ def vote( questionId, surveyId, answerContent, userId, questionCreator ):
 # Increment vote count, inside another transaction.
 # May create or delete Answer record as needed.
 # Returns updated Answer record, or throws transaction Conflict exception.
-def _incrementVoteCount( amount, questionCreator, answerRecord ):
-    logging.debug( '_incrementVoteCount() amount=' + str(amount) + ' questionCreator=' + str(questionCreator) + ' answerRecord=' + str(answerRecord) )
+def __incrementVoteCount( amount, questionCreator, answerRecord ):
+    logging.debug( '__incrementVoteCount() amount=' + str(amount) + ' questionCreator=' + str(questionCreator) + ' answerRecord=' + str(answerRecord) )
 
     # If answer record does not exist, decrement is redundant.
     if ( amount < 0 ) and ( answerRecord is None ):
@@ -295,9 +296,14 @@ def _incrementVoteCount( amount, questionCreator, answerRecord ):
 
     answerRecord.voteCount += amount
 
+    if conf.isDev:  logging.debug( '__incrementVoteCount() answerRecord=' + str(answerRecord) )
+
     # If answer has votes or comes from question creator... keep answer record.
-    if (answerRecord.voteCount >= 1) or (answerRecord.creator == questionCreator):
-        answerRecord.score = voteCountToScore( answerRecord.voteCount, answerRecord.content )
+    if (answerRecord.voteCount >= 1) or (answerRecord.fromEditPage):
+
+        if conf.isDev:  logging.debug( '__incrementVoteCount() overwriting answerRecord=' + str(answerRecord) )
+
+        answerRecord.score = __voteCountToScore( answerRecord.voteCount, answerRecord.content )
         answerRecord.put()
 
         # Also have to re-insert record into search index with updated score, if we want search results ordered by score.
@@ -307,6 +313,9 @@ def _incrementVoteCount( amount, questionCreator, answerRecord ):
         return answerRecord
     # If answer has no votes... delete answer record.
     else:
+
+        if conf.isDev:  logging.debug( '__incrementVoteCount() deleting answerRecord=' + str(answerRecord) )
+
         answerRecord.key.delete()
 
         # Also delete from search index?  Too frequent index operations?  Can we just ignore invalid index entries?  Within limits.
@@ -317,19 +326,23 @@ def _incrementVoteCount( amount, questionCreator, answerRecord ):
 
 
 
-def newAnswer( questionId, surveyId, answerContent, userId, voteCount=0 ):
+def newAnswer( questionId, surveyId, answerContent, userId, voteCount=0, fromEditPage=False ):
     answerRecKey = toKeyId( questionId, answerContent )
-    answerRecord = Answer( id=answerRecKey, questionId=questionId, surveyId=surveyId, creator=userId, content=answerContent, voteCount=voteCount )
-    answerRecord.score = voteCountToScore( answerRecord.voteCount, answerRecord.content )
+    answerRecord = Answer( id=answerRecKey, questionId=questionId, surveyId=surveyId, creator=userId, 
+        content=answerContent, voteCount=voteCount, fromEditPage=fromEditPage )
+
+    if conf.isDev:  logging.debug( 'newAnswer() answerRecord=' + str(answerRecord) )
+
+    answerRecord.score = __voteCountToScore( answerRecord.voteCount, answerRecord.content )
     answerRecord.put()
 
     if const.USE_SEARCH_INDEX:
-        addAnswerToSearchIndex( surveyId, questionId, answerRecKey, answerContent, answerRecord.score )
+        __addAnswerToSearchIndex( surveyId, questionId, answerRecKey, answerContent, answerRecord.score )
 
     return answerRecord
 
 
-def addAnswerToSearchIndex( surveyId, questionId, answerRecKey, answerContent, answerScore ):
+def __addAnswerToSearchIndex( surveyId, questionId, answerRecKey, answerContent, answerScore ):
     fields = [
         search.TextField( name='survey', value=surveyId ),
         search.TextField( name='question', value=questionId ),

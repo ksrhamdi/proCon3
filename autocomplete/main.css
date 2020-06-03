@@ -81,9 +81,11 @@ body[menuedit='true'] #menuItemLinkEdit {  display:block;  }
 #pageSurveyResults              .Answers {  display:table;  width:calc(100% - 15px);  border-collapse:collapse;  }
 #pageSurveyResults                  .Answer {  display:table-row;  }
 #pageSurveyResults                      .AnswerCell {  display:table-cell;  border:solid 1px #dddddd;  padding:10px;  }
-#pageSurveyResults                      .AnswerCount {  text-align:right;  }
 #pageSurveyResults                      .AnswerCountBarBack {  width:100px;  }
 #pageSurveyResults                          .AnswerCountBar {  background-color:#8888aa;  }
+#pageSurveyResults                      .AnswerCount {  width:1px;  text-align:right;  }
+#pageSurveyResults                      .AnswerReasons {  display:table;  width:calc(100% - 15px);  border-collapse:collapse;  }
+#pageSurveyResults                          .AnswerReason {  display:table-row;  }
 #pageSurveyResults              .QuestionResultsButton {  display:none;  }
 
 /* Recent page */

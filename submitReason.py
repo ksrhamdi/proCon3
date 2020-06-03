@@ -39,35 +39,37 @@ class SubmitNewReason(webapp2.RequestHandler):
 
         # User id from cookie, crumb...
         responseData = { 'success':False, 'requestLogId':requestLogId }
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response )
+        if not cookieData.valid():  return
+        userId = cookieData.id()
 
         # Check reason length.
-        if not httpServer.isLengthOk( reasonContent, '', conf.minLengthReason ):  httpServer.outputJsonError( conf.TOO_SHORT, responseData, self.response );  return;
+        if not httpServer.isLengthOk( reasonContent, '', conf.minLengthReason ):  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.TOO_SHORT )
 
         # Retrieve link-key record
         linkKeyRec = linkKey.LinkKey.get_by_id( linkKeyStr )
-        if linkKeyRec is None:  httpServer.outputJsonError( 'linkKey not found', responseData, self.response );  return;
+        if linkKeyRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKey not found' )
         logging.debug( 'SubmitNewReason.post() linkKeyRec=' + str(linkKeyRec) )
 
-        userId = httpServer.getAndCheckUserId( self.request, browserCrumb, responseData, self.response, loginRequired=linkKeyRec.loginRequired, loginCrumb=loginCrumb )
-        if not userId:  return
+        if linkKeyRec.loginRequired  and  not cookieData.loginId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NO_LOGIN )
 
         # Retrieve proposal record
         proposalRec = proposal.Proposal.get_by_id( int(proposalId) )
-        if proposalRec is None:  httpServer.outputJsonError( 'proposal not found', responseData, self.response );  return;
+        if proposalRec is None:  return httpServer.outputJson( cookieDataresponseData, self.response, errorMessage='proposal not found' )
         logging.debug( 'SubmitNewReason.post() proposalRec=' + str(proposalRec) )
 
         # Check link key
         requestId = None
         if linkKeyRec.destinationType == conf.PROPOSAL_CLASS_NAME:
             # Verify that reason belongs to linkKey's proposal.
-            if proposalId != linkKeyRec.destinationId:  httpServer.outputJsonError( 'proposalId != linkKeyRec.destinationId', responseData, self.response );  return;
+            if proposalId != linkKeyRec.destinationId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='proposalId != linkKeyRec.destinationId' )
 
         elif linkKeyRec.destinationType == conf.REQUEST_CLASS_NAME:
             # Verify that reason belongs to linkKey's request, via proposal record.
             requestId = proposalRec.requestId
-            if requestId != linkKeyRec.destinationId:  httpServer.outputJsonError( 'requestId != linkKeyRec.destinationId', responseData, self.response );  return;
+            if requestId != linkKeyRec.destinationId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='requestId != linkKeyRec.destinationId' )
         else:
-            httpServer.outputJsonError( 'linkKey destinationType=' + linkKeyRec.destinationType, responseData, self.response );  return;
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKey destinationType=' + linkKeyRec.destinationType )
         
         # Construct new reason record
         reasonRecord = reason.Reason(
@@ -85,7 +87,7 @@ class SubmitNewReason(webapp2.RequestHandler):
         # Display reason
         reasonDisplay = httpServer.reasonToDisplay( reasonRecord, userId )
         responseData.update(  { 'success':True, 'reason':reasonDisplay }  )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
         # Mark proposal as not editable.
         if proposalRec.allowEdit:
@@ -113,38 +115,40 @@ class SubmitEditReason(webapp2.RequestHandler):
 
         # User id from cookie, crumb...
         responseData = { 'success':False, 'requestLogId':requestLogId }
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response )
+        if not cookieData.valid():  return
+        userId = cookieData.id()
 
         # Check reason length.
-        if not httpServer.isLengthOk( reasonContent, '', conf.minLengthReason ):  httpServer.outputJsonError( conf.TOO_SHORT, responseData, self.response );  return;
+        if not httpServer.isLengthOk( reasonContent, '', conf.minLengthReason ):  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.TOO_SHORT )
 
         # Retrieve link-key record
         linkKeyRec = linkKey.LinkKey.get_by_id( linkKeyStr )
-        if linkKeyRec is None:  httpServer.outputJsonError( 'linkKey not found', responseData, self.response );  return;
+        if linkKeyRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKey not found' )
         logging.debug( 'SubmitEditReason.post() linkKeyRec=' + str(linkKeyRec) )
 
-        userId = httpServer.getAndCheckUserId( self.request, browserCrumb, responseData, self.response, loginRequired=linkKeyRec.loginRequired, loginCrumb=loginCrumb )
-        if not userId:  return
+        if linkKeyRec.loginRequired  and  not cookieData.loginId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NO_LOGIN )
 
         # Verify that reason belongs to request.
         reasonRec = reason.Reason.get_by_id( int(reasonId) )
-        if reasonRec is None:  httpServer.outputJsonError( 'reason not found', responseData, self.response );  return;
+        if reasonRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='reason not found' )
         logging.debug( 'SubmitEditReason.post() reasonRec=' + str(reasonRec) )
 
         # Check link key
         if linkKeyRec.destinationType == conf.PROPOSAL_CLASS_NAME:
             # Verify that reason belongs to linkKey's proposal.
-            if reasonRec.proposalId != linkKeyRec.destinationId:  httpServer.outputJsonError( 'reasonRec.proposalId != linkKeyRec.destinationId', responseData, self.response );  return;
+            if reasonRec.proposalId != linkKeyRec.destinationId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='reasonRec.proposalId != linkKeyRec.destinationId' )
 
         elif linkKeyRec.destinationType == conf.REQUEST_CLASS_NAME:
             # Verify that reason belongs to linkKey's request.
-            if reasonRec.requestId != linkKeyRec.destinationId:  httpServer.outputJsonError( 'reasonRec.requestId != linkKeyRec.destinationId', responseData, self.response );  return;
+            if reasonRec.requestId != linkKeyRec.destinationId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='reasonRec.requestId != linkKeyRec.destinationId' )
 
         else:
-            httpServer.outputJsonError( 'linkKey destinationType=' + linkKeyRec.destinationType, responseData, self.response );  return;
+            httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKey destinationType=' + linkKeyRec.destinationType )
 
         # Verify that proposal is editable
-        if userId != reasonRec.creator:  httpServer.outputJsonError( conf.NOT_OWNER, responseData, self.response );  return;
-        if not reasonRec.allowEdit:  httpServer.outputJsonError( conf.HAS_RESPONSES, responseData, self.response );  return;
+        if userId != reasonRec.creator:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NOT_OWNER )
+        if not reasonRec.allowEdit:  httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.HAS_RESPONSES )
 
         # Update reason record.
         reasonRec.content = reasonContent
@@ -153,7 +157,7 @@ class SubmitEditReason(webapp2.RequestHandler):
         # Display reason.
         reasonDisplay = httpServer.reasonToDisplay( reasonRec, userId )
         responseData.update(  { 'success':True, 'reason':reasonDisplay }  )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 # Route HTTP request

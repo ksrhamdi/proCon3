@@ -45,23 +45,83 @@
             this.setStyle( 'title', 'display', 'none' );
         }
 
-        // For each answer data...
-        var answersDiv = this.getSubElement('Answers');
-        clearChildren( answersDiv );
-        var sumVotes = this.answers.reduce(  function(agg, ans){ return agg + ans.voteCount; } , 0  );
+        // Group answers by answer-without-reason
+        var answerToData = {};
         for ( var r = 0;  r < this.answers.length;  ++r ) { 
             var answerData = this.answers[r];
-            var voteFrac = answerData.voteCount / sumVotes;
-            var opacityFrac = (voteFrac * 4.0) + 0.25;
-            var answerDiv = htmlToElement( '\n' + [
-                '<div class=Answer>',
-                '    <div class="AnswerCell AnswerCount">' + answerData.voteCount + '</div>',
-                '    <div class="AnswerCell AnswerCountBarBack"><div class=AnswerCountBar style="width:' + parseInt(voteFrac * 100) + '%;">&nbsp;</div></div>',
-                '    <div class="AnswerCell AnswerContent" style="opacity:' + opacityFrac + ';">' + answerData.content + '</div>',
-                '</div>'
-            ].join('\n') );
-            answersDiv.appendChild( answerDiv );
+            if ( ! answerData ){  continue;  }
+            var answerAndReasonArray = parseAnswerAndReason( answerData.content );
+            if ( ! answerAndReasonArray ){  continue;  }
+            var answerText = answerAndReasonArray[0];
+            var reasonText = answerAndReasonArray[1];
+            if ( ! (answerText in answerToData) ){  
+                answerToData[ answerText ] = { answerText:answerText, answerCount:0, reasons:[] };  
+            }
+            var answerGroupData = answerToData[ answerText ];
+            answerGroupData.answerCount += answerData.voteCount;
+            answerGroupData.reasons.push( answerData );
         }
+
+        // Order answers by total vote-count
+        var answerTextByTotalVote = [];
+        for ( var answerText in answerToData ){  answerTextByTotalVote.push( answerText );  }
+        answerTextByTotalVote.sort(  function(a,b){ return (answerToData[b].answerCount - answerToData[a].answerCount); }  );
+
+        // For each answer (ignoring reasons) ...
+        var answersDiv = this.getSubElement('Answers');
+        clearChildren( answersDiv );
+        var sumQuestionVotes = this.answers.reduce(  function(agg, ans){ return agg + ans.voteCount; } , 0  );
+        for ( var a = 0;  a < answerTextByTotalVote.length;  ++a ){
+            var answerText = answerTextByTotalVote[a];
+            var answerGroupData = answerToData[ answerText ];
+            var sumAnswerVotes = answerGroupData.reasons.reduce(  function(agg, r){ return agg + r.voteCount; } , 0  );
+
+            var voteFrac = sumAnswerVotes / sumQuestionVotes;
+            var opacityFrac = (voteFrac * 1.5) + 0.25;
+
+            // Build answer-without-reason table-row
+            // Use html-builder instead of text-to-html which fails on partial table
+            var answerDiv = html('tr').class('Answer').children( 
+                html('td').class('AnswerCell').class('AnswerCountBarBack').children(
+                    html('div').class('AnswerCountBar').style('width', parseInt(voteFrac * 100) + '%').innerHtml('&nbsp;').build()
+                ).build() ,
+                html('td').class('AnswerCell').class('AnswerCount').innerHtml(sumAnswerVotes).build() ,
+                html('td').class('AnswerCell').class('AnswerContent').style('opacity', opacityFrac).innerHtml(answerGroupData.answerText).build()
+            ).build();
+            answersDiv.appendChild( answerDiv );
+
+            // Build answers-with-reasons expander
+            // Use separate table for answers-with-reasons, because expander cannot work on just some table-rows
+            var reasonsDiv = html('div').class('AnswerReasons').build();
+            var expandableRow = html('tr').children(
+                html('td').attribute('colspan', 3).children(
+                    html('details').attribute('open', 'open').children(
+                        html('summary').innerHtml('&nbsp;').build() ,
+                        reasonsDiv
+                    ).build()
+                ).build()
+            ).build();
+            answersDiv.appendChild( expandableRow );
+
+            // For each answer-reason...
+            for ( var r = 0;  r < answerGroupData.reasons.length;  ++r ){
+                var reasonData = answerGroupData.reasons[r];
+                var answerAndReasonArray = parseAnswerAndReason( reasonData.content );
+                var reasonText = answerAndReasonArray[1];
+
+                // Build table-row
+                voteFrac = reasonData.voteCount / sumAnswerVotes;
+                opacityFrac = (voteFrac * 1.5) + 0.25;
+                reasonsDiv.appendChild(  htmlToElement( '\n' + [
+                    '       <div class=AnswerReason>' ,
+                    '           <div class="AnswerCell AnswerCountBarBack"></div>' ,
+                    '           <div class="AnswerCell AnswerCount">' + reasonData.voteCount + '</div>' ,
+                    '           <div class="AnswerCell AnswerContent" style="opacity:' + opacityFrac + ';">' + reasonText + '</div>' ,
+                    '       </div>'
+                ].join('\n') )  );
+            }
+        }
+
     };
 
         QuestionResultDisplay.prototype.

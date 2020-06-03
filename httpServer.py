@@ -2,16 +2,28 @@
 
 
 # Import external modules.
+import jinja2
 import json
 import logging
+import os
 # Import app modules.
 from configuration import const as conf
+import cookie
 import linkKey
 import user
 
 
+
+JINJA_ENVIRONMENT = jinja2.Environment(
+    loader = jinja2.FileSystemLoader( os.path.dirname(__file__) ),
+    extensions = ['jinja2.ext.autoescape'],
+    autoescape = True
+)
+
+
 ########################################################################
 
+# Checks title + detail length
 def isLengthOk( title, detail, lengthMin ):
     totalLength = 0
     totalLength += len(title) if title  else 0
@@ -20,32 +32,86 @@ def isLengthOk( title, detail, lengthMin ):
     return ( totalLength >= lengthMin )
 
 
-# Returns userId, or returns None and modifies responseData and httpResponse to report error.
-def getAndCheckUserId( httpRequest, inputCrumb, responseData, httpResponse, loginRequired=False, loginCrumb=None ):
+# Returns CookieData
+def validate( httpRequest, httpInput, responseData, httpResponse, 
+        idRequired=True, loginRequired=False, crumbRequired=True, signatureRequired=True, makeValid=False ):
 
-    userId = user.getCookieId( httpRequest, loginRequired=loginRequired )   # User id cookie created by main page only
-    logging.debug( 'httpServer.getAndCheckUserId() userId=' + str(userId) )
+    if not idRequired:  crumbRequired = False;  signatureRequired=False;
 
-    if userId is None:
-        errorMessage = conf.NO_LOGIN if loginRequired  else conf.NO_COOKIE
-        outputJsonError( errorMessage, responseData, httpResponse )
-        return None
-    if not user.checkCrumb( userId, inputCrumb, loginRequired=loginRequired, loginCrumb=loginCrumb ):
-        outputJsonError( conf.BAD_CRUMB, responseData, httpResponse )
-        return None
-    return userId
+    # Convert URL parameters to a map
+    logging.warn( 'type(httpInput)=' + str( type(httpInput) ) )
+    logging.warn( 'type(httpInput)__name__=' + str( type(httpInput).__name__ ) )
+    if not isinstance( httpInput, dict ):
+        # httpInput may be UnicodeMultiDict, or other custom mapping class from webapp2.RequestHandler.request.GET
+        httpInput = {  i[0] : httpRequest.GET[ i[0] ]  for i in httpRequest.GET.items()  }
+
+    cookieData = user.validate( httpRequest, httpInput, crumbRequired=crumbRequired, signatureRequired=signatureRequired, 
+        makeValid=makeValid )
+    if conf.isDev:  logging.debug( 'validate() cookieData=' + str(cookieData) )
+    
+    # Output error
+    if not cookieData:
+        if idRequired:  outputJson( CookieData(), responseData, httpResponse, errorMessage='Null cookieData' )
+        return CookieData()  # Always return CookieData that is non-null, but maybe invalid
+    elif cookieData.errorMessage:
+        if idRequired:  outputJson( cookieData, responseData, httpResponse, errorMessage=cookieData.errorMessage )
+    elif not cookieData.browserId:
+        if idRequired:  outputJson( cookieData, responseData, httpResponse, errorMessage='Null browserId' )
+    elif not cookieData.loginId:
+        if loginRequired:
+            cookieData.errorMessage = conf.NO_LOGIN
+            outputJson( cookieData, responseData, httpResponse, errorMessage=conf.NO_LOGIN )
+
+    return cookieData
 
 
-# Modifies responseData and httpResponse.
-def outputJsonError( message, responseData, httpResponse ):
-    responseData['success'] = False
-    responseData['message'] = message
-    logging.debug( 'httpServer.outputJsonError() message=' + message )
+# Writes instantiated template to httpResponse
+# Requires templateFilepath relative to this directory -- sub-directories must qualify path
+def outputTemplate( templateFilepath, templateValues, httpResponse, cookieData=None ):
+    logging.debug( 'httpServer.outputTemplate() templateFilepath=' + templateFilepath )
+
+    if cookieData:
+        # Signing modified cookies requires javascript-browser-fingerprint
+        cookieData.sign()
+        cookie.setCookieData( cookieData.data, cookieData.dataNew, getUseSecureCookie(), httpResponse )
+
+    __setStandardHeaders( httpResponse )
+
+    template = JINJA_ENVIRONMENT.get_template( templateFilepath )
+    httpResponse.write( template.render(templateValues) ) 
+
+
+# Modifies responseData and httpResponse
+def outputJson( cookieData, responseData, httpResponse, errorMessage=None ):
+
+    if errorMessage:
+        if conf.isDev:  logging.debug( 'outputJsonError() errorMessage=' + errorMessage )
+        responseData['success'] = False
+        responseData['message'] = errorMessage
+
+    if cookieData:
+        if cookieData.output:
+            if conf.isDev:  logging.debug( 'outputJsonError() cookieData=' + str(cookieData) )
+            raise Exception( 'outputJson() called more than once on cookieData=' + str(cookieData) )
+        cookieData.output = True
+        cookieData.sign()
+        cookie.setCookieData( cookieData.data, cookieData.dataNew, getUseSecureCookie(), httpResponse )
+
+    __setStandardHeaders( httpResponse )
     httpResponse.out.write( json.dumps( responseData ) )
+    return None   # Allow function to be called as a return-value
+
+
+def __setStandardHeaders( httpResponse ):
+    httpResponse.headers['X-Frame-Options'] = 'deny' 
+    httpResponse.headers['Content-Security-Policy'] = "frame-ancestors 'none'"
+
+
+def getUseSecureCookie( ):  return not conf.isDev
 
 
 # Creates link-key, stores link-key in persistent record, and adds link-key to recent links in cookie.
-def createAndStoreLinkKey( destClassName, destinationId, loginRequired, httpRequest, httpResponse ):
+def createAndStoreLinkKey( destClassName, destinationId, loginRequired, cookieData ):
     linkKeyString = linkKey.createLinkKey()
     logging.debug( 'linkKeyString={}'.format(linkKeyString) )
 
@@ -56,7 +122,9 @@ def createAndStoreLinkKey( destClassName, destinationId, loginRequired, httpRequ
         loginRequired = loginRequired
     )
     linkKeyRecordKey = linkKeyRecord.put()
-    user.storeRecentLinkKey( linkKeyString, httpRequest, httpResponse )
+
+    user.storeRecentLinkKey( linkKeyString, cookieData )
+
     return linkKeyRecord
 
 

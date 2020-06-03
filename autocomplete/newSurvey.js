@@ -58,7 +58,7 @@
         showMessage( 'Saving survey...', GREY, null, newSurveySubmitMessage );
         newSurveyIntroInput.setCustomValidity('');
         var dataSend = {
-            crumb:crumb , crumbForLogin:crumbForLogin ,
+            crumb:crumb , fingerprint:fingerprint ,
             introduction:newSurveyIntroInput.value ,
             loginRequired:loginRequiredCheckbox.checked
         };

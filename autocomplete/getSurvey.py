@@ -21,13 +21,15 @@ class GetSurvey( webapp2.RequestHandler ):
         # Collect inputs.
         httpRequestId = os.environ.get( conf.REQUEST_LOG_ID )
         responseData = { 'success':False, 'httpRequestId':httpRequestId }
+
+        cookieData = httpServer.validate( self.request, self.request.GET, responseData, self.response, idRequired=False )
+        userId = cookieData.id()
         
         # Retrieve and check linkKey.
         linkKeyRecord = linkKey.LinkKey.get_by_id( linkKeyStr )
         if (linkKeyRecord is None) or (linkKeyRecord.destinationType != conf.SURVEY_CLASS_NAME):
-            httpServer.outputJsonError( conf.BAD_LINK, responseData, self.response );  return;
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.BAD_LINK )
         surveyId = linkKeyRecord.destinationId
-        userId = user.getCookieId( self.request, loginRequired=linkKeyRecord.loginRequired )
 
         # Retrieve Survey by id, filter/transform fields for display.
         surveyRecord = survey.Survey.get_by_id( int(surveyId) )
@@ -39,11 +41,11 @@ class GetSurvey( webapp2.RequestHandler ):
         linkKeyDisplay = httpServer.linkKeyToDisplay( linkKeyRecord )
         
         # Store survey to user's recent (cookie).
-        user.storeRecentLinkKey( linkKeyStr, self.request, self.response )
+        user.storeRecentLinkKey( linkKeyStr, cookieData )
 
         # Display survey data.
         responseData = { 'success':True , 'linkKey':linkKeyDisplay , 'survey':surveyDisp }
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 # Route HTTP request

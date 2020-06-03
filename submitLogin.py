@@ -10,7 +10,6 @@
 
 # Import external modules
 from google.appengine.ext import ndb
-import jinja2
 import json
 import logging
 import os
@@ -28,15 +27,6 @@ import linkKey
 import user
 
 
-
-# Parameters
-JINJA_ENVIRONMENT = jinja2.Environment(
-    loader = jinja2.FileSystemLoader( os.path.dirname(__file__) ),
-    extensions = ['jinja2.ext.autoescape'],
-    autoescape = True
-)
-
-
 class SignLoginRequest(webapp2.RequestHandler):
 
     def post(self):
@@ -49,15 +39,14 @@ class SignLoginRequest(webapp2.RequestHandler):
         inputData = json.loads( self.request.body )
         logging.debug( 'SignLoginRequest.post() inputData=' + str(inputData) )
 
-        browserCrumb = inputData.get( 'crumb', '' )
-        logging.debug( 'SignLoginRequest.post() browserCrumb=' + str(browserCrumb) )
-
         loginRequestId = user.randomStringWithLength( conf.VOTER_ID_LOGIN_REQUEST_ID_LENGTH )
         signature = user.signLoginRequest( loginRequestId )
 
         # Store login-request-id, to later check against spoofed login-return
-        browserId = user.getCookieId( self.request, loginRequired=False )
-        if not browserId:  httpServer.outputJsonError( conf.NO_COOKIE, responseData, self.response );  return;
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response )
+        if not cookieData.browserId:  return
+        browserId = cookieData.browserId
+
         browserRecord = browser.BrowserRecord.get_by_id( browserId )
         logging.debug( 'LoginReturn.post() browserRecord=' + str(browserRecord) )
 
@@ -69,7 +58,7 @@ class SignLoginRequest(webapp2.RequestHandler):
         browserRecord.put()
 
         responseData.update(  { 'success':True , 'loginRequestId':loginRequestId, 'signature':signature }  )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 
@@ -88,26 +77,30 @@ class LoginReturn(webapp2.RequestHandler):
 
         requestId = inputData['requestId'][0]
         responseSignature = inputData['responseSignature'][0]
-        voterId = inputData[conf.COOKIE_FIELD_VOTER_ID][0]
+        voterId = inputData['voterId'][0]
         city = inputData['city'][0]
 
         # Check that browser-id exists
-        # Cannot check browser crumb, because crumb does not exist in this login-result page's javascript
-        browserId = user.getCookieId( self.request, loginRequired=False )
-        if not browserId:  httpServer.outputJsonError( conf.NO_COOKIE, responseData, self.response );  return;
+        # Cannot check browser crumb/fingerprint, because they do not exist in the referring page
+        # Send fingerprint via ajax before auto-closing tab
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response, crumbRequired=False, signatureRequired=False )
+
+        if not cookieData.browserId:  return
+        browserId = cookieData.browserId
 
         # Check responseSignature
         expectedResponseSignature = user.signLoginResult( requestId, voterId, city )
         logging.debug( 'LoginReturn.post() expectedResponseSignature=' + str(expectedResponseSignature) )
-        if (responseSignature != expectedResponseSignature):  httpServer.outputJsonError( 'responseSignature does not match expected', responseData, self.response );  return;
+        if (responseSignature != expectedResponseSignature):  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='responseSignature does not match expected' )
 
         # Check stored browserId -> loginRequestId , check timeout, then delete record
         browserRecord = browser.BrowserRecord.get_by_id( browserId )
         logging.debug( 'LoginReturn.post() browserRecord=' + str(browserRecord) )
         
         now = int( time.time() )
-        if browserRecord.voterLoginRequestId != requestId:  httpServer.outputJsonError( 'login requestId does not match expected', responseData, self.response );  return;
-        if browserRecord.loginRequestTime + conf.VOTER_ID_TIMEOUT_SEC < now:  httpServer.outputJsonError( 'login past timeout', responseData, self.response );  return;
+        if not browserRecord:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='login browserRecord=null' )
+        if browserRecord.voterLoginRequestId != requestId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='login requestId does not match expected' )
+        if browserRecord.loginRequestTime + conf.VOTER_ID_TIMEOUT_SEC < now:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='login past timeout' )
 
         browserRecordKey = ndb.Key( browser.BrowserRecord, browserId )
         browserRecordKey.delete()
@@ -116,56 +109,21 @@ class LoginReturn(webapp2.RequestHandler):
         # To set crumbForLogin into original page's javascript variable, have to use separate getLoginCrumb call
 
         # Add voter-id to persistent cookie
-        oldCookieData = cookie.getCookieData( self.request )
-        newCookieField = { conf.COOKIE_FIELD_VOTER_ID:voterId , conf.COOKIE_FIELD_VOTER_CITY:city }
-        useSecureCookie = user.getUseSecureCookie( self.request )
-        newCookieData = cookie.setCookieData( oldCookieData, newCookieField, useSecureCookie, self.response )
-        logging.debug( 'GetLogin() newCookieData=' + str(newCookieData) )
-
-        responseData.update( {
-            'crumbForLogin': user.createCrumb( voterId, loginRequired=True ) ,
-            'city': city
-        } )
+        appVoterId = user.voterIdToApp( voterId )
+        cookieData.dataNew[ conf.COOKIE_FIELD_VOTER_ID ] = appVoterId
+        cookieData.dataNew[ conf.COOKIE_FIELD_VOTER_CITY ] = city
 
         # Send page that closes tab
-        template = JINJA_ENVIRONMENT.get_template('loginReturn.html')
-        self.response.write(  template.render( responseData )  )
-        return None
-
-
-
-
-# Login-cookie already sent in loginReturn page
-# Login-crumb would be resent with page-reload
-class GetLoginCrumb( webapp2.RequestHandler ):
-    def get( self ):
-
-        logging.debug( 'GetLogin()' )
-
-        # Collect inputs
-        requestLogId = os.environ.get( conf.REQUEST_LOG_ID )
-        responseData = { 'success':False, 'requestLogId':requestLogId }
-        # Since this is a HTTP-GET call, browser-crumb should not be sent since it would be public
-
-        browserId = user.getCookieId( self.request )
-        if not browserId:  httpServer.outputJsonError( conf.NO_COOKIE, responseData, self.response );  return;
-
-        loginId = user.getCookieId( self.request, loginRequired=True )
-        if not loginId:  httpServer.outputJsonError( 'No login cookie', responseData, self.response );  return;
-
         responseData.update( {
-            'success': True ,
-            'crumbForLogin': user.createCrumb( loginId, loginRequired=True )
+            'crumb': user.createCrumb( browserId ) ,
+            'city': city
         } )
-
-        logging.debug( 'GetLogin() responseData=' + json.dumps(responseData, indent=4, separators=(', ' , ':')) )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputTemplate( 'loginReturn.html', responseData, self.response, cookieData=cookieData )
 
 
 
-
-# Login-crumb not required to allow user to logout even if browser crumb is lost.
-# Browser-crumb can be required for logout, since browser-crumb can be regenerated by page reload.
+# Crumb/fingerprint not required, to enable user to logout even if browser crumb is lost or fingerprint changed.
+# But browser crumb/fingerprint could be required for logout, since they can be regenerated by page reload.
 class SubmitLogout(webapp2.RequestHandler):
 
     def post(self):
@@ -178,22 +136,15 @@ class SubmitLogout(webapp2.RequestHandler):
         inputData = json.loads( self.request.body )
         logging.debug( 'SubmitLogout.post() inputData=' + str(inputData) )
 
-        browserCrumb = inputData.get( 'crumb', '' )
-        loginCrumb = inputData.get( 'crumbForLogin', '' )
-        logging.debug( 'SubmitLogout.post() browserCrumb=' + str(browserCrumb) + ' loginCrumb=' + str(loginCrumb) )
-
-        browserId = httpServer.getAndCheckUserId( self.request, browserCrumb, responseData, self.response, loginRequired=False )
-        if not browserId:  return
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response, crumbRequired=False, signatureRequired=False )
+        if not cookieData.valid():  return   # Cookie already reset, no need to clear cookie fields
 
         # Remove voter-id from persistent cookie, even if cookie is already invalid
-        oldCookieData = cookie.getCookieData( self.request )
-        newCookieField = { conf.COOKIE_FIELD_VOTER_ID:None , conf.COOKIE_FIELD_VOTER_CITY:None }
-        useSecureCookie = user.getUseSecureCookie( self.request )
-        newCookieData = cookie.setCookieData( oldCookieData, newCookieField, useSecureCookie, self.response )
-        logging.debug( 'SubmitLogout() newCookieData=' + str(newCookieData) )
+        cookieData.dataNew[ conf.COOKIE_FIELD_VOTER_ID ] = None
+        cookieData.dataNew[ conf.COOKIE_FIELD_VOTER_CITY ] = None
 
         responseData.update(  { 'success':True }  )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 
@@ -201,7 +152,6 @@ class SubmitLogout(webapp2.RequestHandler):
 app = webapp2.WSGIApplication([
     ('/signLoginRequest', SignLoginRequest),
     ('/loginReturn', LoginReturn),
-    ('/getLogin' , GetLoginCrumb),
     ('/submitLogout', SubmitLogout)
 ])
 

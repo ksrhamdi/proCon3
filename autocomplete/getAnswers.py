@@ -26,18 +26,25 @@ class QuestionAnswersForPrefix( webapp2.RequestHandler ):
 
         httpRequestId = os.environ.get( conf.REQUEST_LOG_ID )
         responseData = { 'success':False, 'httpRequestId':httpRequestId }
+
+        # No user-id required, works for any user with the link-key
+        cookieData = httpServer.validate( self.request, self.request.GET, responseData, self.response, idRequired=False )
+        userId = cookieData.id()
         
         # Retrieve and check linkKey.
         linkKeyRecord = linkKey.LinkKey.get_by_id( linkKeyStr )
         if (linkKeyRecord is None) or (linkKeyRecord.destinationType != conf.SURVEY_CLASS_NAME):
-            httpServer.outputJsonError( conf.BAD_LINK, responseData, self.response );  return;
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.BAD_LINK )
         surveyId = linkKeyRecord.destinationId
-        userId = user.getCookieId( self.request, loginRequired=linkKeyRecord.loginRequired )
+
+        # No need to enforce login-required in GET calls, only on write operations that create/use link-key
+        # But enforcing here because the search is expensive, and part of a write flow
+        if linkKeyRecord.loginRequired  and  not cookieData.loginId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NO_LOGIN )
 
         # Check that question is part of survey, because the answer query may be too expensive to allow unnecessary calls.
         questionRecord = question.Question.get_by_id( int(questionId) )
-        if questionRecord is None:  httpServer.outputJsonError( 'questionRecord is null', responseData, self.response );  return;
-        if questionRecord.surveyId != surveyId:  httpServer.outputJsonError( 'questionRecord.surveyId != surveyId', responseData, self.response );  return;
+        if questionRecord is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='questionRecord is null' )
+        if questionRecord.surveyId != surveyId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='questionRecord.surveyId != surveyId' )
 
         # Retrieve best suggested answers for this question and creator.
         answersOrdered = answer.retrieveTopAnswersAsync( surveyId, questionId, answerStart=answerStart )
@@ -47,7 +54,7 @@ class QuestionAnswersForPrefix( webapp2.RequestHandler ):
 
         # Display answers data.
         responseData.update(  { 'success':True , 'answers':answerDisplays }  )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 class UserAnswer( webapp2.RequestHandler ):
@@ -59,12 +66,15 @@ class UserAnswer( webapp2.RequestHandler ):
         httpRequestId = os.environ.get( conf.REQUEST_LOG_ID )
         responseData = { 'success':False, 'httpRequestId':httpRequestId }
         
+        cookieData = httpServer.validate( self.request, self.request.GET, responseData, self.response, crumbRequired=False, signatureRequired=False )
+        if not cookieData.valid():  return
+        userId = cookieData.id()
+
         # Retrieve and check linkKey.
         linkKeyRecord = linkKey.LinkKey.get_by_id( linkKeyStr )
         if (linkKeyRecord is None) or (linkKeyRecord.destinationType != conf.SURVEY_CLASS_NAME):
-            httpServer.outputJsonError( conf.BAD_LINK, responseData, self.response );  return;
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.BAD_LINK )
         surveyId = linkKeyRecord.destinationId
-        userId = user.getCookieId( self.request, loginRequired=linkKeyRecord.loginRequired )
 
         # Retrieve all answers for this question and voter
         answerVoteRec = answerVote.get( questionId, userId )
@@ -73,15 +83,16 @@ class UserAnswer( webapp2.RequestHandler ):
         answerRecord = answer.Answer.get_by_id( answerVoteRec.answerId )
         logging.debug( 'UserAnswer.get() answerRecord=' + str(answerRecord) )
 
-        if answerRecord.surveyId != surveyId:  httpServer.outputJsonError( 'answerRecord.surveyId != surveyId', responseData, self.response );  return;
+        if answerRecord.surveyId != surveyId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='answerRecord.surveyId != surveyId' )
 
         answerDisplay = httpServerAutocomplete.answerToDisplay( answerRecord, userId ) if answerRecord  else None
 
         # Display answers data.
         responseData.update(  { 'success':True , 'answer':answerDisplay }  )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
+# Retrieves answers currently voted by user, not necessarily created by user
 class UserAnswers( webapp2.RequestHandler ):
     def get( self, linkKeyStr ):
 
@@ -91,12 +102,15 @@ class UserAnswers( webapp2.RequestHandler ):
         httpRequestId = os.environ.get( conf.REQUEST_LOG_ID )
         responseData = { 'success':False, 'httpRequestId':httpRequestId }
         
+        cookieData = httpServer.validate( self.request, self.request.GET, responseData, self.response, crumbRequired=False, signatureRequired=False )
+        if not cookieData.valid():  return
+        userId = cookieData.id()
+
         # Retrieve and check linkKey.
         linkKeyRecord = linkKey.LinkKey.get_by_id( linkKeyStr )
         if (linkKeyRecord is None) or (linkKeyRecord.destinationType != conf.SURVEY_CLASS_NAME):
-            httpServer.outputJsonError( conf.BAD_LINK, responseData, self.response );  return;
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.BAD_LINK )
         surveyId = linkKeyRecord.destinationId
-        userId = user.getCookieId( self.request, loginRequired=linkKeyRecord.loginRequired )
 
         # Retrieve all answers for this survey and voter
         answerVoteRecs = answerVote.AnswerVote.query( answerVote.AnswerVote.surveyId==surveyId, answerVote.AnswerVote.userId==userId ).fetch()
@@ -106,14 +120,15 @@ class UserAnswers( webapp2.RequestHandler ):
         answerRecords = ndb.get_multi( answerRecordKeys )
         logging.debug( 'UserAnswers.get() answerRecords=' + str(answerRecords) )
         
-        answerIdToContent = { a.key.id() : a.content  for a in answerRecords }
+        answerIdToContent = { a.key.id() : a.content  for a in answerRecords  if a }
         questionIdToAnswerContent = { v.questionId : answerIdToContent.get( v.answerId, None )  for v in answerVoteRecs }
 
         # Display answers data.
         responseData.update(  { 'success':True , 'questionIdToAnswerContent':questionIdToAnswerContent }  )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
+# Retrieves answers created by user, maybe not currently voted by user
 class QuestionAnswersFromCreator( webapp2.RequestHandler ):
     def get( self, linkKeyStr, questionId ):
 
@@ -123,12 +138,15 @@ class QuestionAnswersFromCreator( webapp2.RequestHandler ):
         httpRequestId = os.environ.get( conf.REQUEST_LOG_ID )
         responseData = { 'success':False, 'httpRequestId':httpRequestId }
         
+        cookieData = httpServer.validate( self.request, self.request.GET, responseData, self.response, crumbRequired=False, signatureRequired=False )
+        if not cookieData.valid():  return
+        userId = cookieData.id()
+
         # Retrieve and check linkKey.
         linkKeyRecord = linkKey.LinkKey.get_by_id( linkKeyStr )
         if (linkKeyRecord is None) or (linkKeyRecord.destinationType != conf.SURVEY_CLASS_NAME):
-            httpServer.outputJsonError( conf.BAD_LINK, responseData, self.response );  return;
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.BAD_LINK )
         surveyId = linkKeyRecord.destinationId
-        userId = user.getCookieId( self.request, loginRequired=linkKeyRecord.loginRequired )
 
         # Retrieve all answers for this question and creator.
         answerRecords = answer.Answer.query( answer.Answer.questionId==questionId, answer.Answer.creator==userId ).fetch()
@@ -137,7 +155,7 @@ class QuestionAnswersFromCreator( webapp2.RequestHandler ):
 
         # Display answers data.
         responseData = { 'success':True , 'answers':answerDisplays }
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 class QuestionFrequentAnswers( webapp2.RequestHandler ):
@@ -153,16 +171,19 @@ class QuestionFrequentAnswers( webapp2.RequestHandler ):
         httpRequestId = os.environ.get( conf.REQUEST_LOG_ID )
         responseData = { 'success':False, 'httpRequestId':httpRequestId }
         
+        cookieData = httpServer.validate( self.request, self.request.GET, responseData, self.response, idRequired=False )
+        userId = cookieData.id()
+
         # Retrieve and check linkKey.
         linkKeyRecord = linkKey.LinkKey.get_by_id( linkKeyStr )
-        if (linkKeyRecord is None) or (linkKeyRecord.destinationType != conf.SURVEY_CLASS_NAME):  httpServer.outputJsonError( conf.BAD_LINK, responseData, self.response );  return;
+        if (linkKeyRecord is None) or (linkKeyRecord.destinationType != conf.SURVEY_CLASS_NAME):
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.BAD_LINK )
         surveyId = linkKeyRecord.destinationId
-        userId = user.getCookieId( self.request, loginRequired=linkKeyRecord.loginRequired )
         
         # Check that question is part of survey, because the answer query may be too expensive to allow unnecessary calls.
         questionRecord = question.Question.get_by_id( int(questionId) )
-        if questionRecord is None:  httpServer.outputJsonError( 'questionRecord is null', responseData, self.response );  return;
-        if questionRecord.surveyId != surveyId:  httpServer.outputJsonError( 'questionRecord.surveyId != surveyId', responseData, self.response );  return;
+        if questionRecord is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='questionRecord is null' )
+        if questionRecord.surveyId != surveyId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='questionRecord.surveyId != surveyId' )
 
         # Retrieve most frequent answers for question
         if all:
@@ -184,7 +205,7 @@ class QuestionFrequentAnswers( webapp2.RequestHandler ):
 
         # Display answers data.
         responseData.update(  { 'success':True , 'answers':answerDisplays , 'hasMoreAnswers':hasMoreAnswers }  )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 

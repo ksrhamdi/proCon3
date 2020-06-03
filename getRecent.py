@@ -5,6 +5,7 @@ import logging
 import webapp2
 # Import app modules.
 from configuration import const as conf
+import httpServer
 import linkKey
 import proposal
 import requestForProposals
@@ -14,6 +15,9 @@ import user
 class GetRecent(webapp2.RequestHandler):
     def get(self):
         # Collect inputs
+        responseData = { }
+        cookieData = httpServer.validate( self.request, self.request.GET, responseData, self.response, crumbRequired=False, signatureRequired=False )
+        if not cookieData.valid():  return
 
         # Retrieve link-key records from cookie.
         recentLinkKeyToTime = user.retrieveRecentLinkKeys( self.request )
@@ -55,7 +59,7 @@ class GetRecent(webapp2.RequestHandler):
         logging.debug( 'getRecent.GetRecent() recentDestSummaries=' + str(recentDestSummaries) )
         
         responseData = { 'success':True, 'recents':recentDestSummaries }
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 # Route HTTP request

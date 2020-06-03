@@ -1,10 +1,14 @@
-
 Makefile
+*.tsv
 *.txt
 *.pyc
 .git
 .gitignore
 
+test*
+
 devInstance.txt
 *Dev.py
+exe*.py
+
 

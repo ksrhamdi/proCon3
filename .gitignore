@@ -1,11 +1,17 @@
 
+*.txt
+*.tsv
+
 secret*
 */secret*
 
-*.txt
+test*
+testRequest
+testResponse
 
 jquery*.js
+jquery-2.1.4.min.js
+jquery-3.4.1.min.js
 merge.js
-
 *.pyc
 

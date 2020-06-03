@@ -29,30 +29,29 @@ class GetProposalData(webapp2.RequestHandler):
         httpRequestId = os.environ.get( conf.REQUEST_LOG_ID )
         responseData = { 'success':False, 'httpRequestId':httpRequestId }
         
+        cookieData = httpServer.validate( self.request, self.request.GET, responseData, self.response, idRequired=False )
+        userId = cookieData.id()
+
         # Retrieve and check linkKey.
         linkKeyRecord = linkKey.LinkKey.get_by_id( linkKeyStr )
         requestId = None
         if linkKeyRecord is None:
             logging.debug( 'linkKeyRecord is None' )
-            httpServer.outputJsonError( conf.BAD_LINK, responseData, self.response )
-            return
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.BAD_LINK )
         elif linkKeyRecord.destinationType == conf.PROPOSAL_CLASS_NAME:
             proposalId = linkKeyRecord.destinationId
         elif linkKeyRecord.destinationType == conf.REQUEST_CLASS_NAME:
             requestId = linkKeyRecord.destinationId
         else:
             logging.debug( 'linkKeyRecord has unhandled destinationType=' + str(linkKeyRecord.destinationType) )
-            httpServer.outputJsonError( conf.BAD_LINK, responseData, self.response )
-            return
-
-        userId = user.getCookieId( self.request, loginRequired=linkKeyRecord.loginRequired )
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.BAD_LINK )
 
         # Retrieve Proposal by id, filter/transform fields for display.
         proposalRecord = proposal.Proposal.get_by_id( int(proposalId) )
         logging.debug( 'GetProposalData() proposalRecord=' + str(proposalRecord) )
         if proposalRecord.requestId != requestId:
             logging.debug( 'proposalRecord.requestId=' + str(proposalRecord.requestId) + '  !=  requestId=' + str(requestId) )
-            httpServer.outputJsonError( conf.BAD_LINK, responseData, self.response )
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.BAD_LINK )
 
         proposalDisp = httpServer.proposalToDisplay( proposalRecord, userId )
         logging.debug( 'GetProposalData() proposalDisp=' + str(proposalDisp) )
@@ -88,7 +87,7 @@ class GetProposalData(webapp2.RequestHandler):
             r['myVote'] = voteRec.voteUp if voteRec  else False
 
         # Store proposal to user's recent (cookie).
-        user.storeRecentLinkKey( linkKeyStr, self.request, self.response )
+        user.storeRecentLinkKey( linkKeyStr, cookieData )
 
         # Display proposal data.
         responseData = {
@@ -98,12 +97,12 @@ class GetProposalData(webapp2.RequestHandler):
             'reasons':reasonDisps,
         }
         logging.debug( 'GetProposalData() responseData=' + json.dumps(responseData, indent=4, separators=(', ' , ':')) )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 class GetProposalDataForSingleProp( GetProposalData ):
     def get( self, linkKeyStr ):
-        return GetProposalData.get( self, linkKeyStr, None )
+        GetProposalData.get( self, linkKeyStr, None )
 
 
 # Route HTTP request

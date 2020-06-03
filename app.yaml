@@ -49,10 +49,6 @@ handlers:
   script: getProposalData.app
   secure: always
 
-- url: /getLogin
-  script: submitLogin.app
-  secure: always
-
 - url: /createLogin
   script: submitLogin.app
   secure: always
@@ -150,6 +146,10 @@ handlers:
 
 
 
+
+- url: /initialCookie
+  script: main.app
+  secure: always
 
 - url: /procon
   script: main.app

@@ -174,7 +174,7 @@
         this.answerValidity = '';
         this.dataUpdated();
         var sendData = {
-            crumb:crumb , crumbForLogin:crumbForLogin , 
+            crumb:crumb , fingerprint:fingerprint ,
             questionId:this.questionDisplay.question.id,
             answerId:answerData.id ,
             content:inputValue ,
@@ -266,7 +266,7 @@
         this.answerValidity = '';
         this.dataUpdated();
         var sendData = {
-            crumb:crumb , crumbForLogin:crumbForLogin , 
+            crumb:crumb , fingerprint:fingerprint ,
             questionId:this.questionDisplay.question.id,
             answerId:answerData.id ,
             linkKey:this.topDisp.linkKey.id
@@ -586,7 +586,7 @@
         this.questionValidity = '';
         this.dataUpdated();
         var sendData = {
-            crumb:crumb , crumbForLogin:crumbForLogin ,
+            crumb:crumb , fingerprint:fingerprint ,
             questionId:this.question.id ,  // If question is new, then question.id is null, but editQuestion service can handle null and create question.
             linkKey:this.topDisp.linkKey.id ,
             content:contentInput.value
@@ -705,7 +705,7 @@
         this.questionValidity = '';
         this.dataUpdated();
         var sendData = {
-            crumb:crumb , crumbForLogin:crumbForLogin ,
+            crumb:crumb , fingerprint:fingerprint ,
             questionId:this.question.id ,
             linkKey:this.topDisp.linkKey.id
         };
@@ -1024,7 +1024,7 @@
         this.surveyIntroValidity = '';
         this.dataUpdated();
         var sendData = { 
-            crumb:crumb , crumbForLogin:crumbForLogin ,
+            crumb:crumb , fingerprint:fingerprint ,
             linkKey:this.topDisp.linkKey.id , introduction:introInput.value
         };
         var url = '/autocomplete/editSurvey';
@@ -1197,7 +1197,7 @@
         focusedQuestionDisplay.dataUpdated();
         var questionIds = this.survey.questions.map(  function(q){ return q.id; }  );
         var sendData = {
-            crumb:crumb , crumbForLogin:crumbForLogin ,
+            crumb:crumb , fingerprint:fingerprint ,
             linkKey:this.topDisp.linkKey.id , questionIds:questionIds
         };
         var url = '/autocomplete/reorderSurveyQuestions';

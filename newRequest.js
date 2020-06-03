@@ -74,7 +74,7 @@
         newRequestInputTitle.setCustomValidity('');
         newRequestInputDetail.setCustomValidity('');
         var dataSend = {
-            crumb:crumb , crumbForLogin:crumbForLogin , 
+            crumb:crumb , fingerprint:fingerprint ,
             title:newRequestInputTitle.value , detail:newRequestInputDetail.value ,
             loginRequired:loginRequiredForRequestCheckbox.checked
         };

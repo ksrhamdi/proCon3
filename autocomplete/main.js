@@ -13,7 +13,7 @@ const FRAG_PAGE_ABOUT = 'about';
 ////////////////////////////////////////////////////////////////////////////////
 // Global variables
 
-var topDisp = null;  // Only for debugging
+var topDisp = null;
 
 // Cached data
 var surveyResultsDisplay = null;  // Cache whole display, because it contains several separate fields: questions, questionIds, survey
@@ -26,37 +26,40 @@ var recentSurveyIntros = null;
 
 $(document).ready( function(){
 
-    console.log('document ready');
-    updateMenuForScreenChange();
-    updateWaitingLogin();
-    window.onhashchange();
+    console.log('Document ready');
+    
+    requestInitialCookie( function(){
+        updateMenuForScreenChange();
+        updateWaitingLogin();
+        window.onhashchange();
 
-    // Set menu handlers that change fragments
-    document.getElementById('menuItemLinkEdit').onclick = function(){
-        setFragmentFields( {page:FRAG_PAGE_EDIT_QUESTION} );
-        return false;
-    };
-    document.getElementById('menuItemLinkView').onclick = function(){
-        setFragmentFields( {page:FRAG_PAGE_VIEW_QUESTION} );
-        return false;
-    };
+        // Set menu handlers that change fragments
+        document.getElementById('menuItemLinkEdit').onclick = function(){
+            setFragmentFields( {page:FRAG_PAGE_EDIT_QUESTION} );
+            return false;
+        };
+        document.getElementById('menuItemLinkView').onclick = function(){
+            setFragmentFields( {page:FRAG_PAGE_VIEW_QUESTION} );
+            return false;
+        };
 
-    // When user re-visits the page... 
-    jQuery(window).bind( 'focus', function(event){
-        // Update login, then retrieve data if logged in
-        updateWaitingLogin( function(){ 
-            if ( topDisp ){  topDisp.retrieveData();  }
+        // When user re-visits the page... 
+        jQuery(window).bind( 'focus', function(event){
+            // Update login, then retrieve data if logged in
+            updateWaitingLogin( function(){ 
+                if ( topDisp ){  topDisp.retrieveData();  }
+            } );
         } );
+
+        // When user logs out... update data
+        elementWithId('logoutButton').onclick = function(){
+            requestLogout( function(){
+                onLoggedOut();
+                if ( topDisp ){  topDisp.retrieveData();  }
+            } );
+        };
+
     } );
-
-    // When user logs out... update data
-    elementWithId('logoutButton').onclick = function(){
-        requestLogout( function(){
-            onLoggedOut();
-            if ( topDisp ){  topDisp.retrieveData();  }
-        } );
-    };
-
 } );
 
 jQuery(window).resize( function(){

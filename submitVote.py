@@ -38,37 +38,39 @@ class SubmitVote(webapp2.RequestHandler):
 
         # User id from cookie, crumb...
         responseData = { 'success':False, 'requestLogId':requestLogId }
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response )
+        if not cookieData.valid():  return
+        userId = cookieData.id()
 
         # Verify that linkKey matches request/proposal.
         linkKeyRec = linkKey.LinkKey.get_by_id( linkKeyStr )
-        if linkKeyRec is None:  httpServer.outputJsonError( 'linkKey not found', responseData, self.response );  return;
-        if linkKeyRec.destinationId is None:  httpServer.outputJsonError( 'linkKey.destinationId=null', responseData, self.response );  return;
+        if linkKeyRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKey not found' )
+        if linkKeyRec.destinationId is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKey.destinationId=null' )
         logging.debug( 'SubmitVote.post() linkKeyRec=' + str(linkKeyRec) )
 
-        userId = httpServer.getAndCheckUserId( self.request, browserCrumb, responseData, self.response, loginRequired=linkKeyRec.loginRequired, loginCrumb=loginCrumb )
-        if not userId:  return
+        if linkKeyRec.loginRequired  and  not cookieData.loginId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NO_LOGIN )
 
         reasonRecord = reason.Reason.get_by_id( int(reasonId) )
-        if reasonRecord is None:  httpServer.outputJsonError( 'reasonId not found', responseData, self.response );  return;
+        if reasonRecord is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='reasonId not found' )
         logging.debug( 'reasonRecord=' + str(reasonRecord) )
 
         isRequestForProposals = False
         if linkKeyRec.destinationType == conf.PROPOSAL_CLASS_NAME:
             # Verify that reason belongs to linkKey's proposal.
-            if reasonRecord.proposalId != linkKeyRec.destinationId:  httpServer.outputJsonError( 'reasonRecord.proposalId != linkKeyRec.destinationId', responseData, self.response );  return;
+            if reasonRecord.proposalId != linkKeyRec.destinationId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='reasonRecord.proposalId != linkKeyRec.destinationId' )
 
         elif linkKeyRec.destinationType == conf.REQUEST_CLASS_NAME:
             # Verify that reason belongs to linkKey's request.
-            if reasonRecord.requestId != linkKeyRec.destinationId:  httpServer.outputJsonError( 'reasonRecord.requestId != linkKeyRec.destinationId', responseData, self.response );  return;
+            if reasonRecord.requestId != linkKeyRec.destinationId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='reasonRecord.requestId != linkKeyRec.destinationId' )
             isRequestForProposals = True
         else:
-            httpServer.outputJsonError( 'linkKey destinationType=' + linkKeyRec.destinationType, responseData, self.response );  return;
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKey destinationType=' + linkKeyRec.destinationType )
 
         # Set vote, update vote count -- using transactions and retry.
         success, reasonRecordUpdated, voteRecord = reason.vote( 
             reasonRecord.requestId, reasonRecord.proposalId, reasonId, userId, voteUp, isRequestForProposals=isRequestForProposals )
         logging.debug( 'success=' + str(success) + ' reasonRecordUpdated=' + str(reasonRecordUpdated) + ' voteRecord=' + str(voteRecord) )
-        if not success:  httpServer.outputJsonError( 'reason.vote() success=false', responseData, self.response );  return;
+        if not success:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='reason.vote() success=false' )
         if reasonRecordUpdated is not None:  reasonRecord = reasonRecordUpdated
         
         # Display reason and votes.
@@ -77,7 +79,7 @@ class SubmitVote(webapp2.RequestHandler):
         responseData.update(  { 'success':success, 'reason':reasonDisplay }  )
         logging.debug( 'responseData=' + str(responseData) )
         
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
         logging.debug( 'SubmitVote.post() done' )
 
         # Mark reason as not editable.

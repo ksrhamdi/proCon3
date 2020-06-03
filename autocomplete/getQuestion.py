@@ -23,28 +23,30 @@ class GetQuestion( webapp2.RequestHandler ):
         # Collect inputs.
         httpRequestId = os.environ.get( conf.REQUEST_LOG_ID )
         responseData = { 'success':False, 'httpRequestId':httpRequestId }
+
+        cookieData = httpServer.validate( self.request, self.request.GET, responseData, self.response, idRequired=False )
+        userId = cookieData.id()
         
         # Retrieve and check linkKey.
         linkKeyRecord = linkKey.LinkKey.get_by_id( linkKeyStr )
         if (linkKeyRecord is None) or (linkKeyRecord.destinationType != conf.SURVEY_CLASS_NAME):
-            httpServer.outputJsonError( conf.BAD_LINK, responseData, self.response );  return;
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.BAD_LINK )
         surveyId = linkKeyRecord.destinationId
-        userId = user.getCookieId( self.request, loginRequired=linkKeyRecord.loginRequired )
 
         # Retrieve Question by id, filter/transform fields for display.
         questionRecord = question.Question.get_by_id( int(questionId) )
         logging.debug( 'GetQuestion.get() questionRecord=' + str(questionRecord) )
-        if questionRecord.surveyId != surveyId:  httpServer.outputJsonError( 'questionRecord.surveyId != surveyId', responseData, self.response );  return;
+        if questionRecord.surveyId != surveyId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='questionRecord.surveyId != surveyId' )
 
         questionDisp = httpServerAutocomplete.questionToDisplay( questionRecord, userId )
         logging.debug( 'GetQuestion.get() questionDisp=' + str(questionDisp) )
         
         # Store question to user's recent (cookie).
-        user.storeRecentLinkKey( linkKeyStr, self.request, self.response )
+        user.storeRecentLinkKey( linkKeyStr, cookieData )
 
         # Display question data.
         responseData = { 'success':True , 'question':questionDisp }
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 class GetSurveyQuestions( webapp2.RequestHandler ):
@@ -56,16 +58,18 @@ class GetSurveyQuestions( webapp2.RequestHandler ):
         httpRequestId = os.environ.get( conf.REQUEST_LOG_ID )
         responseData = { 'success':False, 'httpRequestId':httpRequestId }
         
+        cookieData = httpServer.validate( self.request, self.request.GET, responseData, self.response, idRequired=False )
+        userId = cookieData.id()
+
         # Retrieve and check linkKey.
         linkKeyRecord = linkKey.LinkKey.get_by_id( linkKeyStr )
         if (linkKeyRecord is None) or (linkKeyRecord.destinationType != conf.SURVEY_CLASS_NAME):
-            httpServer.outputJsonError( conf.BAD_LINK, responseData, self.response );  return;
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.BAD_LINK )
         surveyId = linkKeyRecord.destinationId
-        userId = user.getCookieId( self.request, loginRequired=linkKeyRecord.loginRequired )
 
         # Retrieve survey
         surveyRecord = survey.Survey.get_by_id( int(surveyId) )
-        if surveyRecord is None:  httpServer.outputJsonError( conf.BAD_LINK, responseData, self.response );  return;
+        if surveyRecord is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.BAD_LINK )
 
         # Retrieve all questions for this survey.
         questionRecords = question.Question.query( question.Question.surveyId==surveyId ).fetch()
@@ -81,7 +85,7 @@ class GetSurveyQuestions( webapp2.RequestHandler ):
 
         # Display questions data.
         responseData = { 'success':True , 'questions':questionDisplays }
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 

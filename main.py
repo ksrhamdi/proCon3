@@ -11,32 +11,23 @@
 
 # Import external modules
 import json
-import jinja2
 import logging
 import os
 import webapp2
 # Import local modules
 from configuration import const as conf
+import httpServer
 import secrets
 import user
 
-
-# Parameters
-debug = True
-JINJA_ENVIRONMENT = jinja2.Environment(
-    loader = jinja2.FileSystemLoader( os.path.dirname(__file__) ),
-    extensions = ['jinja2.ext.autoescape'],
-    autoescape = True
-)
 
 
 # Main page generator
 class MainPage( webapp2.RequestHandler ):
 
     def get(self):
-        # set cookie
-        userId = user.getAndCreateBrowserIdCookie( self.request, self.response )
-        userIdForLogin = user.getCookieId( self.request, loginRequired=True )
+    
+        logging.debug( 'self.request=' + str(self.request) )
 
         templateValues = {
             # Pass configuration data from server to client.
@@ -57,20 +48,40 @@ class MainPage( webapp2.RequestHandler ):
             'loginApplicationId': secrets.loginApplicationId ,
             'LOGIN_URL':  conf.LOGIN_URL_DEV if conf.isDev  else conf.LOGIN_URL ,
             'IS_DEV':  'true' if conf.isDev  else 'false' ,
-
-            # When page is loaded, user id may be generated, so recompute crumb.
-            'crumb': user.createCrumb( userId ) if userId  else '' ,
-            'crumbForLogin': user.createCrumb( userIdForLogin, loginRequired=True ) if userIdForLogin  else ''
         }
-        template = JINJA_ENVIRONMENT.get_template('main.html')
-        self.response.write( template.render(templateValues) )
+        # Dont set cookie at this time, because javascript-browser-fingerprint not available to sign cookie
+        httpServer.outputTemplate( 'main.html', templateValues, self.response )
+
+
+
+# Serve cookie on page load
+class InitialCookie( webapp2.RequestHandler ):
+
+    def post( self ):
+
+        logging.debug( 'self.request=' + str(self.request) )
+
+        # Collect inputs
+        requestLogId = os.environ.get( conf.REQUEST_LOG_ID )
+        responseData = { 'success':False, 'requestLogId':requestLogId }
+        inputData = json.loads( self.request.body )
+
+        # Set cookie with signature based on browser-fingerprint from javascript
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response, idRequired=False, makeValid=True )
+        if not cookieData.valid():  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='cookieData invalid' )
+        responseData['success'] = True
+        responseData['crumb'] = user.createCrumb( cookieData.browserId )  if cookieData.valid()  else ''
+
+        httpServer.outputJson( cookieData, responseData, self.response )
+        
 
 
 # Route URLs to page generators
 app = webapp2.WSGIApplication(
     [
         ('/procon', MainPage),
+        ('/initialCookie', InitialCookie),
     ],
-    debug=debug
+    debug=conf.isDev
 )
 

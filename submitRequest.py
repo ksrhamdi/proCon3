@@ -35,13 +35,13 @@ class SubmitNewRequest(webapp2.RequestHandler):
 
         # User id from cookie, crumb...
         responseData = { 'success':False, 'requestLogId':requestLogId }
-        userId = httpServer.getAndCheckUserId( self.request, browserCrumb, responseData, self.response, loginRequired=loginRequired, loginCrumb=loginCrumb )
-        if userId is None: return
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response, loginRequired=loginRequired )
+        if not cookieData.valid():  return
+        userId = cookieData.id()
 
         # Check request length
         if not httpServer.isLengthOk( title, detail, conf.minLengthRequest ):
-            httpServer.outputJsonError( conf.TOO_SHORT, responseData, self.response )
-            return
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.TOO_SHORT )
         
         # Construct new request record
         requestRecord = requestForProposals.RequestForProposals(
@@ -56,14 +56,13 @@ class SubmitNewRequest(webapp2.RequestHandler):
         
         # Construct and store link key.
         requestId = str( requestRecordKey.id() )
-        linkKeyRecord = httpServer.createAndStoreLinkKey( conf.REQUEST_CLASS_NAME, requestId, loginRequired, self.request, self.response )
+        linkKeyRecord = httpServer.createAndStoreLinkKey( conf.REQUEST_CLASS_NAME, requestId, loginRequired, cookieData )
         
         # Send response data.
         linkKeyDisplay = httpServer.linkKeyToDisplay( linkKeyRecord )
         requestDisplay = httpServer.requestToDisplay( requestRecord, userId )
         responseData.update(  { 'success':True, 'linkKey':linkKeyDisplay, 'request':requestDisplay }  )
-        self.response.out.write( json.dumps( responseData ) )
-
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 class SubmitEditRequest(webapp2.RequestHandler):
@@ -85,36 +84,35 @@ class SubmitEditRequest(webapp2.RequestHandler):
 
         # User id from cookie, crumb...
         responseData = { 'success':False, 'requestLogId':requestLogId }
+        cookieData = httpServer.validate( self.request, inputData, responseData, self.response )
+        if not cookieData.valid():  return
+        userId = cookieData.id()
 
         # Require link-key, and convert it to requestId.
         linkKeyRec = linkKey.LinkKey.get_by_id( linkKeyString )
         logging.debug( 'SubmitEditRequest.post() linkKeyRec=' + str(linkKeyRec) )
 
-        if linkKeyRec is None:  httpServer.outputJsonError( 'linkKey not found', responseData, self.response );  return;
-        if linkKeyRec.destinationType != conf.REQUEST_CLASS_NAME:  httpServer.outputJsonError( 'linkKey not a request', responseData, self.response );  return;
+        if linkKeyRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKey not found' )
+        if linkKeyRec.destinationType != conf.REQUEST_CLASS_NAME:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='linkKey not a request' )
         requestId = int(linkKeyRec.destinationId)
         logging.debug( 'SubmitEditRequest.post() requestId=' + str(requestId) )
 
-        userId = httpServer.getAndCheckUserId( self.request, browserCrumb, responseData, self.response, loginRequired=linkKeyRec.loginRequired, loginCrumb=loginCrumb )
-        if not userId:  return
+        if linkKeyRec.loginRequired  and  not cookieData.loginId:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NO_LOGIN )
 
         # Check request length.
         if not httpServer.isLengthOk( title, detail, conf.minLengthRequest ):
-            httpServer.outputJsonError( conf.TOO_SHORT, responseData, self.response )
-            return
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.TOO_SHORT )
         
         # Retrieve request record.
         requestForProposalsRec = requestForProposals.RequestForProposals.get_by_id( requestId )
         logging.debug( 'SubmitEditRequest.post() requestForProposalsRec=' + str(requestForProposalsRec) )
-        if requestForProposalsRec is None:  httpServer.outputJsonError( 'requestForProposalsRec not found', responseData, self.response );  return;
+        if requestForProposalsRec is None:  return httpServer.outputJson( cookieData, responseData, self.response, errorMessage='requestForProposalsRec not found' )
 
         # Verify that request is editable.
         if userId != requestForProposalsRec.creator:
-            httpServer.outputJsonError( conf.NOT_OWNER, responseData, self.response )
-            return
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.NOT_OWNER )
         if not requestForProposalsRec.allowEdit:
-            httpServer.outputJsonError( conf.HAS_RESPONSES, responseData, self.response )
-            return
+            return httpServer.outputJson( cookieData, responseData, self.response, errorMessage=conf.HAS_RESPONSES )
 
         # Update request record.
         requestForProposalsRec.title = title
@@ -124,7 +122,7 @@ class SubmitEditRequest(webapp2.RequestHandler):
         linkKeyDisplay = httpServer.linkKeyToDisplay( linkKeyRec )
         requestDisplay = httpServer.requestToDisplay( requestForProposalsRec, userId )
         responseData.update(  { 'success':True, 'linkKey':linkKeyDisplay, 'request':requestDisplay }  )
-        self.response.out.write( json.dumps( responseData ) )
+        httpServer.outputJson( cookieData, responseData, self.response )
 
 
 

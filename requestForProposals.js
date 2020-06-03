@@ -213,7 +213,8 @@
         this.message = { text:'Saving vote...' , color:GREY, };
         this.dataUpdated()
         var thisCopy = this;
-        var sendData = { crumb:crumb , crumbForLogin:crumbForLogin , reasonId:reasonData.id , vote:reasonData.myVote , 
+        var sendData = { crumb:crumb , fingerprint:fingerprint ,
+            reasonId:reasonData.id , vote:reasonData.myVote , 
             linkKey:this.proposalDisplay.linkKey.id };
         var url = 'submitVote';
         ajaxSendAndUpdate( sendData, url, this.topDisp, function(error, status, receiveData){
@@ -290,7 +291,8 @@
         this.message = { text:'Saving changes...', color:GREY };
         this.contentValidity = '';
         this.dataUpdated();
-        var sendData = { crumb:crumb , crumbForLogin:crumbForLogin , reasonId:reasonData.id , inputContent:inputValue , 
+        var sendData = { crumb:crumb , fingerprint:fingerprint ,
+            reasonId:reasonData.id , inputContent:inputValue , 
             linkKey:this.proposalDisplay.linkKey.id };
         var url = 'editReason';
         var thisCopy = this;
@@ -960,7 +962,8 @@
 
         // save via ajax
         this.titleAndDetailDisp.setMessageAndUpdate( 'Saving changes...', null, null );
-        var sendData = { crumb:crumb , crumbForLogin:crumbForLogin , proposalId:this.proposal.id , linkKey:this.linkKey.id , 
+        var sendData = { crumb:crumb , fingerprint:fingerprint ,
+            proposalId:this.proposal.id , linkKey:this.linkKey.id , 
             title:titleInput.value , detail:detailInput.value };
         var url = 'editProposal';
         var thisCopy = this;
@@ -1042,7 +1045,7 @@
         this.newReasonValidity = '';
         this.dataUpdated();
         var sendData = {
-            crumb:crumb , crumbForLogin:crumbForLogin ,
+            crumb:crumb , fingerprint:fingerprint ,
             linkKey:this.linkKey.id ,
             proposalId:proposalData.id , proOrCon:proOrCon , reasonContent:reasonInput.value
         };
@@ -1561,7 +1564,8 @@
         // save via ajax
         this.titleAndDetailDisp.setMessageAndUpdate( 'Saving changes...', null, null );
         var sendData = { 
-            crumb:crumb , crumbForLogin:crumbForLogin , linkKey:this.reqPropData.linkKey.id , 
+            crumb:crumb , fingerprint:fingerprint ,
+            linkKey:this.reqPropData.linkKey.id , 
             inputTitle:titleInput.value , 
             inputDetail:detailInput.value 
         };
@@ -1613,7 +1617,7 @@
         this.dataUpdated();
 
         var sendData = {
-            crumb: crumb , crumbForLogin:crumbForLogin ,
+            crumb: crumb , fingerprint:fingerprint ,
             requestId: this.reqPropData.linkKey.id ,
             title: titleInput.value ,
             detail: detailInput.value ,
@@ -2085,41 +2089,4 @@
             documentObject.matchScore = ( 1 + weightSum ) * ( 1 + documentScoreAccessor(documentObject) );
         }
     }
-
-
-        function  // returns series[string]
-    storedTextToHtml( storedText ){
-        if ( ! storedText ){  return '';  }
-
-        // turn urls into links
-        var urlRegex = /(https?:\/\/[^ \n\r\t'"<>]+)/ ;
-        var elements = storedText.split( urlRegex );   // series[string]
-        elements = elements.map( function(e){
-        if ( e.match(urlRegex) ){  return '<a href="'+e+'" target="_blank">'+e+'</a>';  }
-            else {  return e;  }
-        } );
-
-        // turn newline into html break
-        var newElements = [ ];
-        elements.map( function(e){
-            var subElements = e.split( /(\n)/ );
-            subElements.map(  function(s){ newElements.push((s == '\n')? '<br/>' : s) }  );
-        } );
-        elements = newElements;
-
-        // turn tab into 4 spaces
-        elements = elements.map(  function(e){
-            return e.replace( /\t/g , '    ' );
-        } );
-
-        // turn 2spaces into &nbsp;
-        newElements = [ ];
-        elements.map( function(e){
-            var subElements = e.split( /(  )/ );
-            subElements.map(  function(s){ newElements.push((s == '  ')? '&nbsp;' : s) }  );
-        } );
-
-        return newElements.join('');
-    }
-
 
